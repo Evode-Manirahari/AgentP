@@ -48,6 +48,11 @@ Services:
 - MCP Streamable HTTP endpoint: `http://localhost:8000/mcp`
 - MinIO console: `http://localhost:9001`
 
+System endpoints:
+
+- `GET /health` reports that the API process is alive.
+- `GET /ready` checks Postgres, Redis, and object storage connectivity.
+
 Local API key:
 
 ```text

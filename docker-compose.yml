@@ -25,7 +25,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"
       interval: 10s
       timeout: 5s
       retries: 5
