@@ -16,6 +16,7 @@ from app.models import (
     JobOutput,
 )
 from app.operations.base import KnownOperationError
+from app.operations.compress import PRESETS
 from app.operations.executor import SUPPORTED_OPERATIONS
 from app.schemas import (
     AuditEventResponse,
@@ -28,6 +29,15 @@ from app.services.audit import add_audit_event
 from app.services.storage import StorageService
 from worker.queue import enqueue_job
 
+OCR_LANGUAGE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-")
+ALLOWED_PARAMETERS = {
+    "merge": {"ocr_if_needed", "language", "deskew"},
+    "split": {"page_ranges"},
+    "ocr": {"language", "deskew"},
+    "compress": {"preset"},
+    "extract_text": {"include_coordinates"},
+}
+
 
 def job_request_fingerprint(request: JobCreate) -> str:
     payload = {
@@ -39,6 +49,45 @@ def job_request_fingerprint(request: JobCreate) -> str:
         "utf-8"
     )
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _reject_unknown_parameters(request: JobCreate) -> None:
+    allowed = ALLOWED_PARAMETERS[request.operation]
+    unknown = set(request.parameters) - allowed
+    if unknown:
+        raise KnownOperationError(
+            "INVALID_PARAMETERS",
+            "The request included unsupported operation parameters.",
+            details={
+                "operation": request.operation,
+                "unsupported": sorted(unknown),
+                "allowed": sorted(allowed),
+            },
+        )
+
+
+def _require_bool_parameter(request: JobCreate, name: str) -> None:
+    if name in request.parameters and not isinstance(request.parameters[name], bool):
+        raise KnownOperationError(
+            "INVALID_PARAMETERS",
+            f"{name} must be a boolean.",
+            details={"parameter": name, "value": request.parameters[name]},
+        )
+
+
+def _validate_ocr_language(request: JobCreate) -> None:
+    if "language" not in request.parameters:
+        return
+
+    language = request.parameters["language"]
+    if not isinstance(language, str) or not language or any(
+        character not in OCR_LANGUAGE_CHARS for character in language
+    ):
+        raise KnownOperationError(
+            "INVALID_OCR_LANGUAGE",
+            "OCR language must contain only letters, numbers, '+', or '-'.",
+            details={"language": language},
+        )
 
 
 def _validate_job_request(request: JobCreate, documents: list[Document]) -> None:
@@ -63,6 +112,13 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
             details={"input_count": len(documents)},
         )
 
+    _reject_unknown_parameters(request)
+
+    if request.operation == "merge":
+        _require_bool_parameter(request, "ocr_if_needed")
+        _require_bool_parameter(request, "deskew")
+        _validate_ocr_language(request)
+
     if request.operation == "split":
         ranges = request.parameters.get("page_ranges")
         if not isinstance(ranges, list) or not all(isinstance(item, str) for item in ranges):
@@ -71,6 +127,22 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
                 "Split requires page_ranges as a list of strings.",
                 details={"parameters": request.parameters},
             )
+
+    if request.operation == "ocr":
+        _require_bool_parameter(request, "deskew")
+        _validate_ocr_language(request)
+
+    if request.operation == "compress":
+        preset = request.parameters.get("preset", "ebook")
+        if not isinstance(preset, str) or preset not in PRESETS:
+            raise KnownOperationError(
+                "INVALID_COMPRESSION_PRESET",
+                "Unsupported compression preset.",
+                details={"preset": preset, "allowed": sorted(PRESETS)},
+            )
+
+    if request.operation == "extract_text":
+        _require_bool_parameter(request, "include_coordinates")
 
 
 def create_job(
