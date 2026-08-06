@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,8 @@ def validate_operation_result(
                 )
         else:
             output_validation["size_bytes"] = output.path.stat().st_size
+            if output.page_count is not None:
+                output_validation["page_count"] = output.page_count
         validation["outputs"].append(output_validation)
 
     if operation == "merge":
@@ -181,8 +184,38 @@ def validate_operation_result(
         validation["assertions"]["selected_pages_present"] = {"passed": True}
 
     if operation == "extract_text":
+        output = result.outputs[0]
+        try:
+            payload = json.loads(output.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise KnownOperationError(
+                "EXTRACT_TEXT_JSON_INVALID",
+                "Text extraction output was not valid JSON.",
+                details={"filename": output.filename, "reason": str(exc)},
+            ) from exc
+
+        expected_pages = input_page_counts[0]
+        actual_page_count = payload.get("page_count")
+        pages = payload.get("pages")
+        page_count_matches = actual_page_count == expected_pages
+        pages_match = isinstance(pages, list) and len(pages) == expected_pages
         validation["assertions"]["json_written"] = {
-            "passed": result.outputs[0].path.exists() and result.outputs[0].path.stat().st_size > 0,
+            "passed": output.path.exists() and output.path.stat().st_size > 0,
         }
+        validation["assertions"]["json_page_count"] = {
+            "expected_pages": expected_pages,
+            "actual_pages": actual_page_count,
+            "passed": page_count_matches and pages_match,
+        }
+        if not page_count_matches or not pages_match:
+            raise KnownOperationError(
+                "EXTRACT_TEXT_PAGE_COUNT_MISMATCH",
+                "Text extraction output does not match the input page count.",
+                details={
+                    "expected_pages": expected_pages,
+                    "actual_page_count": actual_page_count,
+                    "actual_pages_length": len(pages) if isinstance(pages, list) else None,
+                },
+            )
 
     return validation
