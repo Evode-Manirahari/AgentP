@@ -12,6 +12,7 @@ from app.services.jobs import (
     build_job_response,
     create_job,
     created_response,
+    list_jobs_for_response,
     load_job_for_response,
 )
 from app.services.operations_catalog import list_operation_specs
@@ -61,6 +62,39 @@ def _submit_job(
 def list_operations() -> dict[str, Any]:
     """List supported PDF operations, input counts, and parameter schemas."""
     return {"operations": list_operation_specs()}
+
+
+@mcp.tool()
+def list_jobs(
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List recent jobs with compact status summaries."""
+    if limit < 1 or limit > 100:
+        return KnownOperationError(
+            "INVALID_LIMIT",
+            "limit must be between 1 and 100.",
+            details={"limit": limit},
+        ).to_dict()
+    if offset < 0:
+        return KnownOperationError(
+            "INVALID_OFFSET",
+            "offset must be greater than or equal to zero.",
+            details={"offset": offset},
+        ).to_dict()
+
+    try:
+        with SessionLocal() as session:
+            response = list_jobs_for_response(
+                session,
+                status_filter=status,
+                limit=limit,
+                offset=offset,
+            )
+            return response.model_dump(mode="json")
+    except KnownOperationError as exc:
+        return exc.to_dict()
 
 
 @mcp.tool()

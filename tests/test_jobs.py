@@ -49,3 +49,28 @@ def test_job_request_fingerprint_changes_with_request_shape() -> None:
 
     assert jobs.job_request_fingerprint(base) != jobs.job_request_fingerprint(different_parameters)
     assert jobs.job_request_fingerprint(base) != jobs.job_request_fingerprint(different_inputs)
+
+
+def test_validate_job_status_filter_accepts_known_statuses() -> None:
+    for module_name in ["pydantic_settings", "redis", "rq", "sqlalchemy"]:
+        pytest.importorskip(module_name)
+
+    jobs = importlib.import_module("app.services.jobs")
+
+    assert jobs.validate_job_status_filter(None) is None
+    assert jobs.validate_job_status_filter("queued") == "queued"
+    assert jobs.validate_job_status_filter("succeeded") == "succeeded"
+
+
+def test_validate_job_status_filter_rejects_unknown_status() -> None:
+    for module_name in ["pydantic_settings", "redis", "rq", "sqlalchemy"]:
+        pytest.importorskip(module_name)
+
+    jobs = importlib.import_module("app.services.jobs")
+    error_module = importlib.import_module("app.operations.base")
+
+    with pytest.raises(error_module.KnownOperationError) as exc:
+        jobs.validate_job_status_filter("finished")
+
+    assert exc.value.code == "INVALID_JOB_STATUS"
+    assert "succeeded" in exc.value.details["allowed"]

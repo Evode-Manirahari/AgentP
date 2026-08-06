@@ -14,6 +14,7 @@ from app.models import (
     Job,
     JobInput,
     JobOutput,
+    JobStatus,
 )
 from app.operations.base import KnownOperationError
 from app.operations.compress import PRESETS
@@ -22,8 +23,10 @@ from app.schemas import (
     AuditEventResponse,
     JobCreate,
     JobCreatedResponse,
+    JobListResponse,
     JobOutputResponse,
     JobStatusResponse,
+    JobSummaryResponse,
 )
 from app.services.audit import add_audit_event
 from app.services.storage import StorageService
@@ -37,6 +40,7 @@ ALLOWED_PARAMETERS = {
     "compress": {"preset"},
     "extract_text": {"include_coordinates"},
 }
+JOB_STATUSES = {status.value for status in JobStatus}
 
 
 def job_request_fingerprint(request: JobCreate) -> str:
@@ -49,6 +53,18 @@ def job_request_fingerprint(request: JobCreate) -> str:
         "utf-8"
     )
     return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_job_status_filter(status_filter: str | None) -> str | None:
+    if status_filter is None:
+        return None
+    if status_filter not in JOB_STATUSES:
+        raise KnownOperationError(
+            "INVALID_JOB_STATUS",
+            "The requested job status filter is not supported.",
+            details={"status": status_filter, "allowed": sorted(JOB_STATUSES)},
+        )
+    return status_filter
 
 
 def _reject_unknown_parameters(request: JobCreate) -> None:
@@ -248,6 +264,58 @@ def created_response(job: Job) -> JobCreatedResponse:
     return JobCreatedResponse(job_id=job.id, status=job.status)
 
 
+def _job_error(job: Job) -> dict[str, Any] | None:
+    if not job.error_code and not job.error_message:
+        return None
+    return {
+        "code": job.error_code or "JOB_FAILED",
+        "message": job.error_message or "The job failed.",
+        "details": {},
+        "retryable": False,
+    }
+
+
+def _job_summary(job: Job) -> JobSummaryResponse:
+    return JobSummaryResponse(
+        job_id=job.id,
+        operation=job.operation,
+        status=job.status,
+        parameters=job.parameters,
+        output_count=len(job.outputs),
+        error=_job_error(job),
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+    )
+
+
+def list_jobs_for_response(
+    session: Session,
+    *,
+    status_filter: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> JobListResponse:
+    validated_status = validate_job_status_filter(status_filter)
+    statement = (
+        select(Job)
+        .options(selectinload(Job.outputs))
+        .order_by(Job.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    if validated_status is not None:
+        statement = statement.where(Job.status == validated_status)
+
+    jobs = list(session.scalars(statement))
+    return JobListResponse(
+        jobs=[_job_summary(job) for job in jobs],
+        count=len(jobs),
+        limit=limit,
+        offset=offset,
+    )
+
+
 def load_job_for_response(session: Session, job_id: str) -> Job | None:
     return session.scalar(
         select(Job)
@@ -285,14 +353,6 @@ def build_job_response(
         )
         for event in job.audit_events
     ]
-    error: dict[str, Any] | None = None
-    if job.error_code or job.error_message:
-        error = {
-            "code": job.error_code or "JOB_FAILED",
-            "message": job.error_message or "The job failed.",
-            "details": {},
-            "retryable": False,
-        }
     return JobStatusResponse(
         job_id=job.id,
         operation=job.operation,
@@ -300,7 +360,7 @@ def build_job_response(
         parameters=job.parameters,
         outputs=outputs,
         validation=job.validation,
-        error=error,
+        error=_job_error(job),
         audit=audit,
         created_at=job.created_at,
         started_at=job.started_at,

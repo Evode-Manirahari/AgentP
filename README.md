@@ -107,6 +107,13 @@ curl -sS http://localhost:8000/v1/jobs/job_... \
   -H "X-API-Key: local-dev-key"
 ```
 
+List recent jobs, optionally filtering by status:
+
+```bash
+curl -sS 'http://localhost:8000/v1/jobs?status=queued&limit=20' \
+  -H "X-API-Key: local-dev-key"
+```
+
 The response includes:
 
 - `outputs[].download_url`
@@ -125,6 +132,7 @@ In Docker Compose, signed download URLs use `AGENTPDF_S3_PUBLIC_ENDPOINT_URL=htt
 The MCP server exposes strongly typed tools:
 
 - `list_operations()`
+- `list_jobs(status, limit, offset)`
 - `merge_pdfs(file_ids, ocr_if_needed, language, deskew, idempotency_key)`
 - `split_pdf(file_id, page_ranges, idempotency_key)`
 - `ocr_pdf(file_id, language, deskew, idempotency_key)`

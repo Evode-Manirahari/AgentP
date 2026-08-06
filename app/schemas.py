@@ -58,6 +58,25 @@ class JobCreatedResponse(BaseModel):
     status: str
 
 
+class JobSummaryResponse(BaseModel):
+    job_id: str
+    operation: str
+    status: str
+    parameters: dict[str, Any]
+    output_count: int = 0
+    error: dict[str, Any] | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class JobListResponse(BaseModel):
+    jobs: list[JobSummaryResponse]
+    count: int
+    limit: int
+    offset: int
+
+
 class JobOutputResponse(BaseModel):
     file_id: str
     filename: str

@@ -2,19 +2,20 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.errors import operation_http_error
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.operations.base import KnownOperationError
-from app.schemas import JobCreate, JobCreatedResponse, JobStatusResponse
+from app.schemas import JobCreate, JobCreatedResponse, JobListResponse, JobStatusResponse
 from app.services.auth import require_api_key
 from app.services.jobs import (
     build_job_response,
     create_job,
     created_response,
+    list_jobs_for_response,
     load_job_for_response,
 )
 from app.services.storage import StorageService
@@ -47,6 +48,24 @@ def create_job_endpoint(
             status_code=status_code,
         ) from exc
     return created_response(job)
+
+
+@router.get("", response_model=JobListResponse)
+def list_jobs_endpoint(
+    session: Annotated[Session, Depends(get_session)],
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> JobListResponse:
+    try:
+        return list_jobs_for_response(
+            session,
+            status_filter=status_filter,
+            limit=limit,
+            offset=offset,
+        )
+    except KnownOperationError as exc:
+        raise operation_http_error(exc) from exc
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
