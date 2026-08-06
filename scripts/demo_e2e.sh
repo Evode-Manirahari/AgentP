@@ -10,7 +10,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
+wait_for_api() {
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 2 "${API_URL}/ready" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  docker compose logs --no-color --tail=80 api >&2 || true
+  echo "Timed out waiting for API readiness at ${API_URL}/ready" >&2
+  return 1
+}
+
 docker compose up -d --build
+wait_for_api
 
 docker compose run --rm -v "${TMP_DIR}:/out" api python - <<'PY'
 from pathlib import Path
@@ -63,4 +77,3 @@ done
 
 echo "Timed out waiting for ${job_id}" >&2
 exit 1
-
