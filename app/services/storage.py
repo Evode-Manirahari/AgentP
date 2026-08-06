@@ -13,6 +13,15 @@ def safe_filename(filename: str) -> str:
     return cleaned or "document"
 
 
+def is_missing_bucket_error(error: Exception) -> bool:
+    response = getattr(error, "response", {})
+    error_info = response.get("Error", {}) if isinstance(response, dict) else {}
+    metadata = response.get("ResponseMetadata", {}) if isinstance(response, dict) else {}
+    code = str(error_info.get("Code", ""))
+    status_code = metadata.get("HTTPStatusCode")
+    return status_code == 404 or code in {"404", "NoSuchBucket", "NotFound"}
+
+
 class StorageService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -44,7 +53,9 @@ class StorageService:
 
         try:
             self.client.head_bucket(Bucket=self.settings.s3_bucket)
-        except ClientError:
+        except ClientError as exc:
+            if not is_missing_bucket_error(exc):
+                raise
             self.client.create_bucket(Bucket=self.settings.s3_bucket)
 
     def input_key(self, *, document_id: str, filename: str) -> str:
