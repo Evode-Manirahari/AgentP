@@ -1,4 +1,4 @@
-.PHONY: build up down logs ps test smoke container-test demo
+.PHONY: build up down logs ps test smoke db-upgrade container-test demo
 
 build:
 	docker compose build
@@ -22,9 +22,11 @@ test:
 smoke:
 	curl -sS --max-time 10 http://localhost:8000/health
 
+db-upgrade:
+	alembic upgrade head
+
 container-test:
 	./scripts/container_tests.sh
 
 demo:
 	./scripts/demo_e2e.sh
-

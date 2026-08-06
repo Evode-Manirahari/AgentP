@@ -1,5 +1,6 @@
 import time
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
@@ -15,6 +16,22 @@ class Base(DeclarativeBase):
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
+ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+
+def run_migrations() -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(ALEMBIC_CONFIG_PATH))
+    command.upgrade(config, "head")
+
+
+def create_schema() -> None:
+    if ALEMBIC_CONFIG_PATH.exists():
+        run_migrations()
+    else:
+        Base.metadata.create_all(bind=engine)
 
 
 def init_db(*, attempts: int = 30, delay_seconds: float = 1.0) -> None:
@@ -22,7 +39,7 @@ def init_db(*, attempts: int = 30, delay_seconds: float = 1.0) -> None:
 
     for attempt in range(1, attempts + 1):
         try:
-            Base.metadata.create_all(bind=engine)
+            create_schema()
             return
         except OperationalError:
             if attempt == attempts:

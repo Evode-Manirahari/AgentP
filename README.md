@@ -35,6 +35,10 @@ REST client / AI agent
 
 The API is the control plane. The worker is the data plane. Large document operations never run in the FastAPI request process.
 
+Database schema changes are versioned with Alembic migrations. The API applies migrations
+on startup when `alembic.ini` is present, and `make db-upgrade` can be used for manual
+schema upgrades.
+
 ## Local Start
 
 ```bash
@@ -170,6 +174,12 @@ Run syntax checks without external services:
 
 ```bash
 make test
+```
+
+Apply database migrations manually:
+
+```bash
+make db-upgrade
 ```
 
 Run the full local Python checks after installing dependencies:
