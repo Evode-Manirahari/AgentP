@@ -68,9 +68,22 @@ for _ in $(seq 1 30); do
       -H "X-API-Key: ${API_KEY}"
   )"
   status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"${response}")"
-  if [[ "${status}" == "succeeded" || "${status}" == "failed" ]]; then
+  if [[ "${status}" == "succeeded" ]]; then
+    output_file_id="$(
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["outputs"][0]["file_id"])' \
+        <<<"${response}"
+    )"
+    curl -fsS -L "${API_URL}/v1/files/${output_file_id}/content" \
+      -H "X-API-Key: ${API_KEY}" \
+      -o "${TMP_DIR}/merged-output.pdf"
+    python3 -c 'from pathlib import Path; import sys; data = Path(sys.argv[1]).read_bytes(); assert data.startswith(b"%PDF")' \
+      "${TMP_DIR}/merged-output.pdf"
     echo "${response}" | python3 -m json.tool
     exit 0
+  fi
+  if [[ "${status}" == "failed" ]]; then
+    echo "${response}" | python3 -m json.tool
+    exit 1
   fi
   sleep 1
 done

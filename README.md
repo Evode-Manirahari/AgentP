@@ -128,6 +128,15 @@ The response includes:
 - `audit`
 - structured `error` if the job failed
 
+Files can also be downloaded through the API when direct object-store URLs are not
+reachable from the client:
+
+```bash
+curl -L http://localhost:8000/v1/files/file_.../content \
+  -H "X-API-Key: local-dev-key" \
+  -o output.pdf
+```
+
 Idempotency keys are request-scoped. Reusing the same `Idempotency-Key` with the same
 operation, inputs, and parameters returns the existing job. Reusing the key for a different
 request returns an `IDEMPOTENCY_KEY_CONFLICT` error.

@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.api.errors import operation_http_error
 from app.config import Settings, get_settings
@@ -19,6 +21,27 @@ from app.services.storage import StorageService
 from app.services.validation import validate_input_pdf
 
 router = APIRouter(prefix="/files", tags=["files"], dependencies=[Depends(require_api_key)])
+
+
+def _file_not_found(file_id: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={
+            "error": {
+                "code": "FILE_NOT_FOUND",
+                "message": "The requested file does not exist.",
+                "details": {"file_id": file_id},
+                "retryable": False,
+            }
+        },
+    )
+
+
+def _get_document_or_404(session: Session, file_id: str) -> Document:
+    document = session.get(Document, file_id)
+    if document is None:
+        raise _file_not_found(file_id)
+    return document
 
 
 @router.post("", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -100,20 +123,7 @@ def download_file(
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DownloadResponse:
-    document = session.get(Document, file_id)
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": {
-                    "code": "FILE_NOT_FOUND",
-                    "message": "The requested file does not exist.",
-                    "details": {"file_id": file_id},
-                    "retryable": False,
-                }
-            },
-        )
-
+    document = _get_document_or_404(session, file_id)
     storage = StorageService(settings)
     return DownloadResponse(
         file_id=document.id,
@@ -122,4 +132,34 @@ def download_file(
             filename=document.original_filename,
         ),
         expires_in_seconds=settings.download_url_expires_seconds,
+    )
+
+
+@router.get("/{file_id}/content", response_class=FileResponse)
+def download_file_content(
+    file_id: str,
+    session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> FileResponse:
+    document = _get_document_or_404(session, file_id)
+    suffix = Path(document.original_filename).suffix or ".pdf"
+
+    with tempfile.NamedTemporaryFile(
+        prefix=settings.temp_prefix,
+        suffix=suffix,
+        delete=False,
+    ) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        StorageService(settings).download_to_path(key=document.storage_key, path=tmp_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+    return FileResponse(
+        path=tmp_path,
+        filename=document.original_filename,
+        media_type=document.mime_type,
+        background=BackgroundTask(lambda: tmp_path.unlink(missing_ok=True)),
     )
