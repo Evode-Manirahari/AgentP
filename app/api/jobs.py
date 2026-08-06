@@ -37,13 +37,14 @@ def create_job_endpoint(
             settings=settings,
         )
     except KnownOperationError as exc:
+        status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_400_BAD_REQUEST
+        )
+        if exc.code == "IDEMPOTENCY_KEY_CONFLICT":
+            status_code = status.HTTP_409_CONFLICT
         raise operation_http_error(
             exc,
-            status_code=(
-                status.HTTP_503_SERVICE_UNAVAILABLE
-                if exc.retryable
-                else status.HTTP_400_BAD_REQUEST
-            ),
+            status_code=status_code,
         ) from exc
     return created_response(job)
 

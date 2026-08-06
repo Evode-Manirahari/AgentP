@@ -71,6 +71,7 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=JobStatus.QUEUED.value)
     parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     validation: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -130,4 +131,3 @@ class AuditEvent(Base):
     )
 
     job: Mapped[Job] = relationship(back_populates="audit_events")
-

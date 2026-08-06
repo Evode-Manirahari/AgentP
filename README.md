@@ -98,6 +98,10 @@ The response includes:
 - `audit`
 - structured `error` if the job failed
 
+Idempotency keys are request-scoped. Reusing the same `Idempotency-Key` with the same
+operation, inputs, and parameters returns the existing job. Reusing the key for a different
+request returns an `IDEMPOTENCY_KEY_CONFLICT` error.
+
 In Docker Compose, signed download URLs use `AGENTPDF_S3_PUBLIC_ENDPOINT_URL=http://localhost:9000` so links returned to host clients are reachable outside the Docker network.
 
 ## MCP Tools
@@ -153,6 +157,13 @@ Run syntax checks without external services:
 
 ```bash
 make test
+```
+
+Run the full local Python checks after installing dependencies:
+
+```bash
+python -m ruff check app tests worker
+python -m pytest
 ```
 
 Run tests inside the application container, including native PDF operation tests:

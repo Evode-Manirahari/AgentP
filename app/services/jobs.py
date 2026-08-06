@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -25,6 +27,18 @@ from app.schemas import (
 from app.services.audit import add_audit_event
 from app.services.storage import StorageService
 from worker.queue import enqueue_job
+
+
+def job_request_fingerprint(request: JobCreate) -> str:
+    payload = {
+        "operation": request.operation,
+        "inputs": [input_ref.file_id for input_ref in request.inputs],
+        "parameters": request.parameters,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _validate_job_request(request: JobCreate, documents: list[Document]) -> None:
@@ -67,10 +81,20 @@ def create_job(
     settings: Settings | None = None,
 ) -> Job:
     active_settings = settings or get_settings()
+    idempotency_fingerprint = job_request_fingerprint(request) if idempotency_key else None
 
     if idempotency_key:
         existing = session.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
         if existing is not None:
+            if (
+                existing.idempotency_fingerprint
+                and existing.idempotency_fingerprint != idempotency_fingerprint
+            ):
+                raise KnownOperationError(
+                    "IDEMPOTENCY_KEY_CONFLICT",
+                    "The idempotency key was already used for a different job request.",
+                    details={"idempotency_key": idempotency_key},
+                )
             return existing
 
     documents: list[Document] = []
@@ -96,6 +120,7 @@ def create_job(
         operation=request.operation,
         parameters=request.parameters,
         idempotency_key=idempotency_key,
+        idempotency_fingerprint=idempotency_fingerprint,
     )
     session.add(job)
     session.flush()
@@ -209,4 +234,3 @@ def build_job_response(
         started_at=job.started_at,
         finished_at=job.finished_at,
     )
-

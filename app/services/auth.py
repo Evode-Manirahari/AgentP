@@ -1,3 +1,4 @@
+import secrets
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -12,7 +13,7 @@ def require_api_key(
     api_key: Annotated[str | None, Depends(api_key_header)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
-    if not api_key or api_key != settings.api_key:
+    if not api_key or not secrets.compare_digest(api_key, settings.api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
