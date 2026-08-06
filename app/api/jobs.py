@@ -13,6 +13,7 @@ from app.schemas import JobCreate, JobCreatedResponse, JobListResponse, JobStatu
 from app.services.auth import require_api_key
 from app.services.jobs import (
     build_job_response,
+    cancel_job,
     create_job,
     created_response,
     list_jobs_for_response,
@@ -87,4 +88,25 @@ def get_job_endpoint(
                 }
             },
         )
+    return build_job_response(job=job, storage=StorageService(settings))
+
+
+@router.post("/{job_id}/cancel", response_model=JobStatusResponse)
+def cancel_job_endpoint(
+    job_id: str,
+    session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> JobStatusResponse:
+    try:
+        job = cancel_job(session, job_id=job_id, settings=settings)
+    except KnownOperationError as exc:
+        status_code = status.HTTP_400_BAD_REQUEST
+        if exc.code == "JOB_NOT_FOUND":
+            status_code = status.HTTP_404_NOT_FOUND
+        if exc.code == "JOB_NOT_CANCELABLE":
+            status_code = status.HTTP_409_CONFLICT
+        if exc.retryable:
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        raise operation_http_error(exc, status_code=status_code) from exc
+
     return build_job_response(job=job, storage=StorageService(settings))

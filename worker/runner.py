@@ -16,6 +16,12 @@ from app.services.audit import add_audit_event
 from app.services.storage import StorageService
 from app.services.validation import validate_input_pdf, validate_operation_result
 
+TERMINAL_JOB_STATUSES = {
+    JobStatus.SUCCEEDED.value,
+    JobStatus.FAILED.value,
+    JobStatus.CANCELED.value,
+}
+
 
 def _mark_failed(job_id: str, error: KnownOperationError) -> None:
     with SessionLocal() as session:
@@ -59,7 +65,7 @@ def process_job(job_id: str) -> None:
                     details={"job_id": job_id},
                     retryable=False,
                 )
-            if job.status == JobStatus.SUCCEEDED.value:
+            if job.status in TERMINAL_JOB_STATUSES:
                 return
             job.status = JobStatus.RUNNING.value
             job.started_at = datetime.now(UTC)
@@ -190,4 +196,3 @@ def process_job(job_id: str) -> None:
         )
         _mark_failed(job_id, error)
         raise
-

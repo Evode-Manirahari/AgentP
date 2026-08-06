@@ -38,6 +38,7 @@ class JobStatus(StrEnum):
     VALIDATING = "validating"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELED = "canceled"
 
 
 class Document(Base):
@@ -72,6 +73,7 @@ class Job(Base):
     parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
     idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    queue_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     validation: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

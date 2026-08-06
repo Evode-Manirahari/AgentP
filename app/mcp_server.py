@@ -10,6 +10,7 @@ from app.operations.base import KnownOperationError
 from app.schemas import JobCreate, JobInputRef
 from app.services.jobs import (
     build_job_response,
+    cancel_job,
     create_job,
     created_response,
     list_jobs_for_response,
@@ -92,6 +93,18 @@ def list_jobs(
                 limit=limit,
                 offset=offset,
             )
+            return response.model_dump(mode="json")
+    except KnownOperationError as exc:
+        return exc.to_dict()
+
+
+@mcp.tool(name="cancel_job")
+def cancel_job_tool(job_id: str) -> dict[str, Any]:
+    """Cancel a queued job before the worker starts processing it."""
+    try:
+        with SessionLocal() as session:
+            job = cancel_job(session, job_id=job_id, settings=get_settings())
+            response = build_job_response(job=job, storage=StorageService(get_settings()))
             return response.model_dump(mode="json")
     except KnownOperationError as exc:
         return exc.to_dict()

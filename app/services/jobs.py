@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
 
+from redis import Redis
+from rq.exceptions import NoSuchJobError
+from rq.job import Job as RQJob
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -41,6 +45,11 @@ ALLOWED_PARAMETERS = {
     "extract_text": {"include_coordinates"},
 }
 JOB_STATUSES = {status.value for status in JobStatus}
+TERMINAL_JOB_STATUSES = {
+    JobStatus.SUCCEEDED.value,
+    JobStatus.FAILED.value,
+    JobStatus.CANCELED.value,
+}
 
 
 def job_request_fingerprint(request: JobCreate) -> str:
@@ -250,6 +259,8 @@ def create_job(
             retryable=True,
         ) from exc
 
+    job.queue_job_id = rq_job_id
+    session.add(job)
     add_audit_event(
         session,
         job_id=job.id,
@@ -262,6 +273,65 @@ def create_job(
 
 def created_response(job: Job) -> JobCreatedResponse:
     return JobCreatedResponse(job_id=job.id, status=job.status)
+
+
+def cancel_queued_rq_job(job: Job, *, settings: Settings) -> None:
+    if not job.queue_job_id:
+        return
+
+    client = Redis.from_url(settings.redis_url)
+    try:
+        rq_job = RQJob.fetch(job.queue_job_id, connection=client)
+        rq_job.cancel()
+    except NoSuchJobError:
+        return
+    except Exception as exc:
+        raise KnownOperationError(
+            "QUEUE_CANCEL_FAILED",
+            "The queued job could not be canceled.",
+            details={"reason": str(exc), "queue_job_id": job.queue_job_id},
+            retryable=True,
+        ) from exc
+    finally:
+        client.close()
+
+
+def cancel_job(
+    session: Session,
+    *,
+    job_id: str,
+    settings: Settings | None = None,
+) -> Job:
+    job = session.get(Job, job_id)
+    if job is None:
+        raise KnownOperationError(
+            "JOB_NOT_FOUND",
+            "The requested job does not exist.",
+            details={"job_id": job_id},
+        )
+
+    if job.status == JobStatus.CANCELED.value:
+        return job
+
+    if job.status != JobStatus.QUEUED.value:
+        raise KnownOperationError(
+            "JOB_NOT_CANCELABLE",
+            "Only queued jobs can be canceled.",
+            details={"job_id": job.id, "status": job.status},
+        )
+
+    cancel_queued_rq_job(job, settings=settings or get_settings())
+    job.status = JobStatus.CANCELED.value
+    job.finished_at = datetime.now(UTC)
+    session.add(job)
+    add_audit_event(
+        session,
+        job_id=job.id,
+        event_type="job.canceled",
+        payload={"queue_job_id": job.queue_job_id},
+    )
+    session.commit()
+    return job
 
 
 def _job_error(job: Job) -> dict[str, Any] | None:

@@ -114,6 +114,13 @@ curl -sS 'http://localhost:8000/v1/jobs?status=queued&limit=20' \
   -H "X-API-Key: local-dev-key"
 ```
 
+Cancel a queued job before the worker starts processing it:
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/jobs/job_.../cancel \
+  -H "X-API-Key: local-dev-key"
+```
+
 The response includes:
 
 - `outputs[].download_url`
@@ -133,6 +140,7 @@ The MCP server exposes strongly typed tools:
 
 - `list_operations()`
 - `list_jobs(status, limit, offset)`
+- `cancel_job(job_id)`
 - `merge_pdfs(file_ids, ocr_if_needed, language, deskew, idempotency_key)`
 - `split_pdf(file_id, page_ranges, idempotency_key)`
 - `ocr_pdf(file_id, language, deskew, idempotency_key)`
