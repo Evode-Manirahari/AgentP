@@ -14,6 +14,7 @@ from app.services.jobs import (
     created_response,
     load_job_for_response,
 )
+from app.services.operations_catalog import list_operation_specs
 from app.services.storage import StorageService
 
 mcp = MCPServer("AgentP Document Execution")
@@ -54,6 +55,12 @@ def _submit_job(
             return _queued_envelope(response.job_id, response.status)
     except KnownOperationError as exc:
         return exc.to_dict()
+
+
+@mcp.tool()
+def list_operations() -> dict[str, Any]:
+    """List supported PDF operations, input counts, and parameter schemas."""
+    return {"operations": list_operation_specs()}
 
 
 @mcp.tool()

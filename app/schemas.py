@@ -22,6 +22,27 @@ class DownloadResponse(BaseModel):
     expires_in_seconds: int
 
 
+class OperationParameterResponse(BaseModel):
+    name: str
+    type: str
+    required: bool = False
+    default: Any | None = None
+    allowed_values: list[Any] | None = None
+    description: str
+
+
+class OperationSpecResponse(BaseModel):
+    name: OperationName
+    description: str
+    input_count_min: int
+    input_count_max: int | None
+    parameters: list[OperationParameterResponse] = Field(default_factory=list)
+
+
+class OperationsResponse(BaseModel):
+    operations: list[OperationSpecResponse]
+
+
 class JobInputRef(BaseModel):
     file_id: str
 
@@ -74,4 +95,3 @@ class ErrorBody(BaseModel):
 
 class ErrorEnvelope(BaseModel):
     error: ErrorBody
-

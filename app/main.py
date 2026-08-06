@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.api.errors import install_exception_handlers
 from app.api.files import router as files_router
 from app.api.jobs import router as jobs_router
+from app.api.operations import router as operations_router
 from app.config import get_settings
 from app.db import init_db
 from app.mcp_server import mcp, mcp_app
@@ -37,4 +38,5 @@ def health() -> dict[str, str]:
 
 app.include_router(files_router, prefix="/v1")
 app.include_router(jobs_router, prefix="/v1")
+app.include_router(operations_router, prefix="/v1")
 app.mount("/mcp", mcp_app)
