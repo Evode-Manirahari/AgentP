@@ -9,6 +9,7 @@ from redis import Redis
 from rq.exceptions import NoSuchJobError
 from rq.job import Job as RQJob
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings, get_settings
@@ -171,6 +172,86 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
         _require_bool_parameter(request, "include_coordinates")
 
 
+def _idempotent_match(
+    session: Session,
+    *,
+    idempotency_key: str,
+    fingerprint: str | None,
+) -> Job | None:
+    existing = session.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
+    if existing is None:
+        return None
+    if existing.idempotency_fingerprint and existing.idempotency_fingerprint != fingerprint:
+        raise KnownOperationError(
+            "IDEMPOTENCY_KEY_CONFLICT",
+            "The idempotency key was already used for a different job request.",
+            details={"idempotency_key": idempotency_key},
+        )
+    return existing
+
+
+def _never_reached_queue(job: Job) -> bool:
+    return (
+        job.queue_job_id is None
+        and job.status == JobStatus.FAILED.value
+        and job.error_code == "QUEUE_UNAVAILABLE"
+    )
+
+
+def _enqueue_or_fail(session: Session, job: Job, *, settings: Settings) -> Job:
+    try:
+        rq_job_id = enqueue_job(job.id, settings=settings)
+    except Exception as exc:
+        job.error_code = "QUEUE_UNAVAILABLE"
+        job.error_message = str(exc)
+        job.status = JobStatus.FAILED.value
+        session.add(job)
+        add_audit_event(
+            session,
+            job_id=job.id,
+            event_type="job.enqueue_failed",
+            payload={"reason": str(exc)},
+        )
+        session.commit()
+        raise KnownOperationError(
+            "QUEUE_UNAVAILABLE",
+            "The job queue is unavailable.",
+            details={"reason": str(exc)},
+            retryable=True,
+        ) from exc
+
+    job.queue_job_id = rq_job_id
+    session.add(job)
+    add_audit_event(
+        session,
+        job_id=job.id,
+        event_type="job.enqueued",
+        payload={"rq_job_id": rq_job_id, "queue": settings.queue_name},
+    )
+    session.commit()
+    return job
+
+
+def _resume_existing_job(session: Session, job: Job, *, settings: Settings) -> Job:
+    # A QUEUE_UNAVAILABLE failure is reported as retryable, so an idempotent replay has to
+    # put the job back on the queue instead of returning a job that will never run.
+    if not _never_reached_queue(job):
+        return job
+
+    job.status = JobStatus.QUEUED.value
+    job.error_code = None
+    job.error_message = None
+    session.add(job)
+    add_audit_event(
+        session,
+        job_id=job.id,
+        event_type="job.enqueue_retried",
+        payload={"previous_error_code": "QUEUE_UNAVAILABLE"},
+    )
+    session.commit()
+    return _enqueue_or_fail(session, job, settings=settings)
+
+
 def create_job(
     session: Session,
     *,
@@ -182,18 +263,13 @@ def create_job(
     idempotency_fingerprint = job_request_fingerprint(request) if idempotency_key else None
 
     if idempotency_key:
-        existing = session.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
+        existing = _idempotent_match(
+            session,
+            idempotency_key=idempotency_key,
+            fingerprint=idempotency_fingerprint,
+        )
         if existing is not None:
-            if (
-                existing.idempotency_fingerprint
-                and existing.idempotency_fingerprint != idempotency_fingerprint
-            ):
-                raise KnownOperationError(
-                    "IDEMPOTENCY_KEY_CONFLICT",
-                    "The idempotency key was already used for a different job request.",
-                    details={"idempotency_key": idempotency_key},
-                )
-            return existing
+            return _resume_existing_job(session, existing, settings=active_settings)
 
     documents: list[Document] = []
     for input_ref in request.inputs:
@@ -221,7 +297,23 @@ def create_job(
         idempotency_fingerprint=idempotency_fingerprint,
     )
     session.add(job)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError:
+        # A concurrent request with the same idempotency key won the insert race.
+        session.rollback()
+        winner = (
+            _idempotent_match(
+                session,
+                idempotency_key=idempotency_key,
+                fingerprint=idempotency_fingerprint,
+            )
+            if idempotency_key
+            else None
+        )
+        if winner is None:
+            raise
+        return _resume_existing_job(session, winner, settings=active_settings)
 
     for position, document in enumerate(documents):
         session.add(JobInput(job_id=job.id, document_id=document.id, position=position))
@@ -239,37 +331,7 @@ def create_job(
     )
     session.commit()
 
-    try:
-        rq_job_id = enqueue_job(job.id, settings=active_settings)
-    except Exception as exc:
-        job.error_code = "QUEUE_UNAVAILABLE"
-        job.error_message = str(exc)
-        job.status = "failed"
-        session.add(job)
-        add_audit_event(
-            session,
-            job_id=job.id,
-            event_type="job.enqueue_failed",
-            payload={"reason": str(exc)},
-        )
-        session.commit()
-        raise KnownOperationError(
-            "QUEUE_UNAVAILABLE",
-            "The job queue is unavailable.",
-            details={"reason": str(exc)},
-            retryable=True,
-        ) from exc
-
-    job.queue_job_id = rq_job_id
-    session.add(job)
-    add_audit_event(
-        session,
-        job_id=job.id,
-        event_type="job.enqueued",
-        payload={"rq_job_id": rq_job_id, "queue": active_settings.queue_name},
-    )
-    session.commit()
-    return job
+    return _enqueue_or_fail(session, job, settings=active_settings)
 
 
 def created_response(job: Job) -> JobCreatedResponse:
