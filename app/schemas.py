@@ -7,10 +7,16 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator
 
 OperationName = Literal["merge", "prepare_packet", "split", "ocr", "compress", "extract_text"]
-WebhookEventName = Literal["job.succeeded", "job.failed", "job.canceled"]
+WebhookEventName = Literal[
+    "job.succeeded",
+    "job.completed_with_warnings",
+    "job.failed",
+    "job.canceled",
+]
 WebhookDeliveryState = Literal["pending", "succeeded", "failed"]
 DEFAULT_WEBHOOK_EVENTS: list[WebhookEventName] = [
     "job.succeeded",
+    "job.completed_with_warnings",
     "job.failed",
     "job.canceled",
 ]
@@ -72,6 +78,7 @@ class JobSummaryResponse(BaseModel):
     status: str
     parameters: dict[str, Any]
     output_count: int = 0
+    warning_count: int = 0
     error: dict[str, Any] | None = None
     created_at: datetime
     started_at: datetime | None = None
@@ -106,6 +113,7 @@ class JobStatusResponse(BaseModel):
     parameters: dict[str, Any]
     outputs: list[JobOutputResponse] = Field(default_factory=list)
     validation: dict[str, Any] | None = None
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
     error: dict[str, Any] | None = None
     audit: list[AuditEventResponse] = Field(default_factory=list)
     created_at: datetime

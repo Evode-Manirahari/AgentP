@@ -19,9 +19,18 @@ from app.services.webhooks import deliver_webhook_delivery, safe_queue_terminal_
 
 TERMINAL_JOB_STATUSES = {
     JobStatus.SUCCEEDED.value,
+    JobStatus.COMPLETED_WITH_WARNINGS.value,
     JobStatus.FAILED.value,
     JobStatus.CANCELED.value,
 }
+
+
+def _terminal_success_outcome(warnings: list[dict]) -> tuple[str, str]:
+    # Every assertion passed. Warnings describe the inputs, not a broken output, so they
+    # change the terminal status without failing the job.
+    if warnings:
+        return JobStatus.COMPLETED_WITH_WARNINGS.value, "job.completed_with_warnings"
+    return JobStatus.SUCCEEDED.value, "job.succeeded"
 
 
 def _mark_failed(job_id: str, error: KnownOperationError) -> None:
@@ -175,23 +184,25 @@ def process_job(job_id: str) -> None:
                     )
                     output_file_ids.append(document.id)
 
-                job.status = JobStatus.SUCCEEDED.value
+                warnings = validation.get("warnings") or []
+                job.status, event_type = _terminal_success_outcome(warnings)
                 job.validation = validation
                 job.finished_at = datetime.now(UTC)
                 session.add(job)
                 add_audit_event(
                     session,
                     job_id=job.id,
-                    event_type="job.succeeded",
+                    event_type=event_type,
                     payload={
                         "output_file_ids": output_file_ids,
                         "validation": validation,
+                        "warnings": warnings,
                     },
                 )
                 session.commit()
                 safe_queue_terminal_job_webhooks(
                     job_id=job.id,
-                    event_type="job.succeeded",
+                    event_type=event_type,
                     settings=settings,
                 )
     except KnownOperationError as exc:

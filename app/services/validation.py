@@ -84,6 +84,7 @@ def validate_operation_result(
         "operation": operation,
         "outputs": [],
         "assertions": {},
+        "warnings": [],
         "metadata": result.metadata,
     }
 
