@@ -34,6 +34,39 @@ OPERATION_CATALOG: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "prepare_packet",
+        "description": (
+            "Prepare a document packet: inspect inputs, OCR scanned documents, organize them, "
+            "merge them into one validated PDF, and return an audit report."
+        ),
+        "input_count_min": 2,
+        "input_count_max": None,
+        "parameters": [
+            {
+                "name": "order",
+                "type": "string",
+                "required": False,
+                "default": "as_provided",
+                "allowed_values": ["as_provided", "filename"],
+                "description": "How to order documents before merging.",
+            },
+            {
+                "name": "language",
+                "type": "string",
+                "required": False,
+                "default": "eng",
+                "description": "OCR language code passed to OCRmyPDF.",
+            },
+            {
+                "name": "deskew",
+                "type": "boolean",
+                "required": False,
+                "default": True,
+                "description": "Deskew pages when OCR is applied.",
+            },
+        ],
+    },
+    {
         "name": "split",
         "description": "Split one PDF into one output PDF per requested page range.",
         "input_count_min": 1,

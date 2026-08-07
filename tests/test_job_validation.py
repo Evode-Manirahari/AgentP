@@ -62,6 +62,46 @@ def test_rejects_invalid_ocr_language_at_create_time(language: object) -> None:
     assert exc.value.code == "INVALID_OCR_LANGUAGE"
 
 
+def test_rejects_unknown_packet_order_at_create_time() -> None:
+    request = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123"),
+            schemas.JobInputRef(file_id="file_456"),
+        ],
+        parameters={"order": "by_vibes"},
+    )
+
+    with pytest.raises(KnownOperationError) as exc:
+        jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+    assert exc.value.code == "INVALID_PACKET_ORDER"
+    assert exc.value.details["allowed"] == ["as_provided", "filename"]
+
+
+def test_rejects_single_input_packet_at_create_time() -> None:
+    request = _request("prepare_packet", {})
+
+    with pytest.raises(KnownOperationError) as exc:
+        jobs._validate_job_request(request, [_document()])
+
+    assert exc.value.code == "NOT_ENOUGH_INPUTS"
+    assert exc.value.details["operation"] == "prepare_packet"
+
+
+def test_accepts_valid_packet_parameters() -> None:
+    request = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123"),
+            schemas.JobInputRef(file_id="file_456"),
+        ],
+        parameters={"order": "filename", "language": "eng+fra", "deskew": False},
+    )
+
+    jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+
 def test_accepts_valid_optional_parameters() -> None:
     request = schemas.JobCreate(
         operation="merge",

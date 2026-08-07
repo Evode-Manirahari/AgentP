@@ -11,10 +11,11 @@ The first product path is intentionally narrow:
 1. Upload PDFs.
 2. Validate structure with `qpdf`, page counting, and a render probe.
 3. Create an async job for `merge`, `split`, `ocr`, `compress`, or `extract_text`.
-4. Run the job in an RQ worker using deterministic PDF tools.
-5. Validate the output before marking the job complete.
-6. Return short-lived download URLs, validation details, and audit events.
-7. Deliver signed completion webhooks with durable delivery history.
+4. Run the `prepare_packet` workflow, which chains those steps into one verified artifact.
+5. Run the job in an RQ worker using deterministic PDF tools.
+6. Validate the output before marking the job complete.
+7. Return short-lived download URLs, validation details, and audit events.
+8. Deliver signed completion webhooks with durable delivery history.
 
 MCP tools expose the same job service as the REST API. There is no separate AI chat layer.
 
@@ -92,6 +93,48 @@ curl -sS -X POST http://localhost:8000/v1/jobs \
     "inputs": [{"file_id": "file_..."}, {"file_id": "file_..."}],
     "parameters": {"ocr_if_needed": true, "language": "eng", "deskew": true}
   }'
+```
+
+## Packet Workflow
+
+`prepare_packet` is the flagship workflow: hand it an unorganized set of documents and it
+returns one validated PDF plus an audit report.
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/jobs \
+  -H "X-API-Key: local-dev-key" \
+  -H "Idempotency-Key: demo-packet-001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "operation": "prepare_packet",
+    "inputs": [{"file_id": "file_..."}, {"file_id": "file_..."}],
+    "parameters": {"order": "filename", "language": "eng", "deskew": true}
+  }'
+```
+
+It runs four recorded steps:
+
+1. `inspect` — page count, SHA-256, and scan detection for every input.
+2. `ocr` — OCR only the inputs that have no usable text layer.
+3. `organize` — order documents by `as_provided` (default) or `filename`.
+4. `merge` — combine them into `packet.pdf`.
+
+Two outputs come back. `packet.pdf` is the merged, searchable result.
+`packet-audit-report.json` records each input's checksum, whether it was OCRed, the step
+timeline, the final sequence, and any warnings.
+
+Warnings describe an input without failing the packet. `LOW_TEXT_AFTER_OCR` means a
+document was OCRed but still holds almost no text — usually an unreadable scan. Warnings
+appear in the audit report and in the job's `validation.warnings`.
+
+The job only reaches `succeeded` after two assertions hold: the packet contains every
+input page, and the audit report describes every input document. Either failing produces
+`PACKET_PAGE_COUNT_MISMATCH` or `AUDIT_REPORT_INCOMPLETE` instead of a silent result.
+
+Run it end to end against real OCR:
+
+```bash
+make demo-packet
 ```
 
 Discover supported operations and parameter schemas:
@@ -192,6 +235,7 @@ The MCP server exposes strongly typed tools:
 - `list_jobs(status, limit, offset)`
 - `cancel_job(job_id)`
 - `merge_pdfs(file_ids, ocr_if_needed, language, deskew, idempotency_key)`
+- `prepare_packet(file_ids, order, language, deskew, idempotency_key)`
 - `split_pdf(file_id, page_ranges, idempotency_key)`
 - `ocr_pdf(file_id, language, deskew, idempotency_key)`
 - `compress_pdf(file_id, preset, idempotency_key)`

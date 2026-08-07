@@ -137,6 +137,57 @@ def validate_operation_result(
                 details={"expected_pages": expected_pages, "actual_pages": actual_pages},
             )
 
+    if operation == "prepare_packet":
+        expected_pages = sum(input_page_counts)
+        actual_pages = validation["outputs"][0]["page_count"]
+        validation["assertions"]["packet_page_count"] = {
+            "expected_pages": expected_pages,
+            "actual_pages": actual_pages,
+            "passed": expected_pages == actual_pages,
+        }
+        if expected_pages != actual_pages:
+            raise KnownOperationError(
+                "PACKET_PAGE_COUNT_MISMATCH",
+                "The prepared packet does not contain every input page.",
+                details={"expected_pages": expected_pages, "actual_pages": actual_pages},
+            )
+
+        report_output = next(
+            (output for output in result.outputs if output.mime_type == "application/json"),
+            None,
+        )
+        if report_output is None:
+            raise KnownOperationError(
+                "AUDIT_REPORT_MISSING",
+                "The prepared packet did not include an audit report.",
+                details={"outputs": [output.filename for output in result.outputs]},
+            )
+        try:
+            report = json.loads(report_output.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise KnownOperationError(
+                "AUDIT_REPORT_JSON_INVALID",
+                "The packet audit report was not valid JSON.",
+                details={"filename": report_output.filename, "reason": str(exc)},
+            ) from exc
+
+        reported_inputs = report.get("summary", {}).get("input_count")
+        validation["assertions"]["audit_report_complete"] = {
+            "expected_inputs": len(input_paths),
+            "reported_inputs": reported_inputs,
+            "passed": reported_inputs == len(input_paths),
+        }
+        if reported_inputs != len(input_paths):
+            raise KnownOperationError(
+                "AUDIT_REPORT_INCOMPLETE",
+                "The packet audit report does not describe every input document.",
+                details={
+                    "expected_inputs": len(input_paths),
+                    "reported_inputs": reported_inputs,
+                },
+            )
+        validation["warnings"] = report.get("warnings", [])
+
     if operation in {"ocr", "compress"}:
         expected_pages = input_page_counts[0]
         actual_pages = validation["outputs"][0]["page_count"]
