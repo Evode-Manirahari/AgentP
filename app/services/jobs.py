@@ -52,6 +52,7 @@ MULTI_INPUT_OPERATIONS = {"merge", "prepare_packet"}
 JOB_STATUSES = {status.value for status in JobStatus}
 TERMINAL_JOB_STATUSES = {
     JobStatus.SUCCEEDED.value,
+    JobStatus.COMPLETED_WITH_WARNINGS.value,
     JobStatus.FAILED.value,
     JobStatus.CANCELED.value,
 }
@@ -427,6 +428,12 @@ def _job_error(job: Job) -> dict[str, Any] | None:
     }
 
 
+def job_warnings(job: Job) -> list[dict[str, Any]]:
+    if not job.validation:
+        return []
+    return job.validation.get("warnings") or []
+
+
 def _job_summary(job: Job) -> JobSummaryResponse:
     return JobSummaryResponse(
         job_id=job.id,
@@ -434,6 +441,7 @@ def _job_summary(job: Job) -> JobSummaryResponse:
         status=job.status,
         parameters=job.parameters,
         output_count=len(job.outputs),
+        warning_count=len(job_warnings(job)),
         error=_job_error(job),
         created_at=job.created_at,
         started_at=job.started_at,
@@ -512,6 +520,7 @@ def build_job_response(
         parameters=job.parameters,
         outputs=outputs,
         validation=job.validation,
+        warnings=job_warnings(job),
         error=_job_error(job),
         audit=audit,
         created_at=job.created_at,

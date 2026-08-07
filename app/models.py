@@ -38,6 +38,7 @@ class JobStatus(StrEnum):
     RUNNING = "running"
     VALIDATING = "validating"
     SUCCEEDED = "succeeded"
+    COMPLETED_WITH_WARNINGS = "completed_with_warnings"
     FAILED = "failed"
     CANCELED = "canceled"
 

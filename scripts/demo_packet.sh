@@ -110,7 +110,8 @@ for _ in $(seq 1 120); do
   response="$(curl -sS "${API_URL}/v1/jobs/${job_id}" -H "X-API-Key: ${API_KEY}")"
   status="$(json_field status <<<"${response}")"
 
-  if [[ "${status}" == "succeeded" ]]; then
+  if [[ "${status}" == "succeeded" || "${status}" == "completed_with_warnings" ]]; then
+    echo "==> Job finished with status: ${status}"
     packet_id="$(
       python3 -c 'import json,sys
 job = json.load(sys.stdin)
