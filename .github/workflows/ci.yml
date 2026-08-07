@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: ["main"]
+  # Every pull request, not only those targeting main: a stacked pull request that skips
+  # CI can be merged into its parent branch and reach main untested.
   pull_request:
-    branches: ["main"]
 
 jobs:
   test:
