@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     download_url_expires_seconds: int = Field(default=900, gt=0)
     webhook_delivery_timeout_seconds: int = Field(default=10, gt=0)
     webhook_max_attempts: int = Field(default=3, gt=0)
+    webhook_allow_private_urls: bool = False
     temp_prefix: str = "agentp-"
 
 

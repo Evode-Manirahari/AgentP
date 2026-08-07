@@ -5,7 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.errors import operation_http_error
+from app.config import Settings, get_settings
 from app.db import get_session
+from app.operations.base import KnownOperationError
 from app.schemas import (
     WebhookCreate,
     WebhookCreateResponse,
@@ -44,8 +47,12 @@ def _webhook_not_found(webhook_id: str) -> HTTPException:
 def create_webhook_endpoint_api(
     request: WebhookCreate,
     session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebhookCreateResponse:
-    return create_webhook_endpoint(session, request=request)
+    try:
+        return create_webhook_endpoint(session, request=request, settings=settings)
+    except KnownOperationError as exc:
+        raise operation_http_error(exc) from exc
 
 
 @router.get("", response_model=WebhookEndpointListResponse)

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import secrets
+import socket
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
@@ -23,6 +26,7 @@ from app.models import (
     WebhookDeliveryStatus,
     WebhookEndpoint,
 )
+from app.operations.base import KnownOperationError
 from app.schemas import (
     DEFAULT_WEBHOOK_EVENTS,
     WebhookCreate,
@@ -35,7 +39,84 @@ from app.schemas import (
 from worker.queue import enqueue_webhook_delivery
 
 WEBHOOK_BACKOFF_SECONDS = (1.0, 3.0, 10.0)
+BLOCKED_TARGET_MESSAGE = (
+    "Webhook URLs must resolve to a public address. Set "
+    "AGENTPDF_WEBHOOK_ALLOW_PRIVATE_URLS=true to allow private, loopback, or link-local "
+    "targets in development."
+)
 logger = logging.getLogger(__name__)
+
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+def _resolve_addresses(host: str, port: int) -> list[IPAddress]:
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError, ValueError):
+        # Unresolvable now does not mean unresolvable at delivery time, and a host we
+        # cannot resolve is also a host we cannot connect to. Let the delivery attempt fail.
+        return []
+
+    addresses: list[IPAddress] = []
+    for info in infos:
+        try:
+            addresses.append(ipaddress.ip_address(info[4][0]))
+        except ValueError:
+            continue
+    return addresses
+
+
+def is_blocked_address(address: IPAddress) -> bool:
+    return (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def ensure_public_webhook_target(url: str, *, settings: Settings) -> None:
+    """Reject webhook targets that resolve inside the deployment's own network.
+
+    Without this, any holder of the API key can point deliveries at cloud metadata
+    (169.254.169.254) or internal services and read the response status back out of the
+    delivery log. Checked at registration and again at delivery, because DNS can change
+    in between.
+    """
+    if settings.webhook_allow_private_urls:
+        return
+
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise KnownOperationError(
+            "INVALID_WEBHOOK_URL",
+            "Webhook URLs must include a host.",
+            details={"url": url[:200]},
+        )
+
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as exc:
+        raise KnownOperationError(
+            "INVALID_WEBHOOK_URL",
+            "Webhook URLs must include a valid port.",
+            details={"url": url[:200]},
+        ) from exc
+
+    blocked = [
+        str(address)
+        for address in _resolve_addresses(host, port)
+        if is_blocked_address(address)
+    ]
+    if blocked:
+        raise KnownOperationError(
+            "WEBHOOK_TARGET_NOT_ALLOWED",
+            BLOCKED_TARGET_MESSAGE,
+            details={"host": host, "blocked_addresses": sorted(blocked)},
+        )
 
 
 def _json_default(value: object) -> str:
@@ -95,7 +176,9 @@ def create_webhook_endpoint(
     session: Session,
     *,
     request: WebhookCreate,
+    settings: Settings | None = None,
 ) -> WebhookCreateResponse:
+    ensure_public_webhook_target(request.url, settings=settings or get_settings())
     secret = secrets.token_urlsafe(32)
     endpoint = WebhookEndpoint(
         url=request.url,
@@ -332,6 +415,20 @@ def deliver_webhook_delivery(
                 delivery,
                 attempts=delivery.attempts,
                 error="Webhook is inactive.",
+            )
+            session.add(delivery)
+            session.commit()
+            return
+
+        # Re-checked here because the endpoint may have been registered before this guard
+        # existed, or its DNS record may since have been pointed inward.
+        try:
+            ensure_public_webhook_target(endpoint.url, settings=active_settings)
+        except KnownOperationError as exc:
+            _mark_delivery_failure(
+                delivery,
+                attempts=delivery.attempts,
+                error=exc.message,
             )
             session.add(delivery)
             session.commit()
