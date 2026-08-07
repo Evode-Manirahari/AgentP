@@ -19,6 +19,8 @@ settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
 ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
+LEGACY_SCHEMA_REVISION = "0002_job_queue_id"
+LEGACY_MODEL_TABLES = {"audit_events", "documents", "job_inputs", "job_outputs", "jobs"}
 ADOPTABLE_LEGACY_COLUMNS = {"jobs": {"idempotency_fingerprint", "queue_job_id"}}
 LEGACY_COLUMN_DDL = {
     ("jobs", "idempotency_fingerprint"): (
@@ -36,6 +38,7 @@ LEGACY_INDEX_DDL = {
 class LegacySchemaPatch(NamedTuple):
     missing_columns: dict[str, set[str]]
     missing_indexes: set[str]
+    stamp_revision: str
 
 
 def _model_table_names() -> set[str]:
@@ -70,18 +73,19 @@ def _legacy_schema_patch(
     if not existing_model_tables:
         return None
 
-    missing_tables = model_tables - table_names
-    if missing_tables:
-        missing = ", ".join(sorted(missing_tables))
+    missing_legacy_tables = LEGACY_MODEL_TABLES - table_names
+    if missing_legacy_tables:
+        missing = ", ".join(sorted(missing_legacy_tables))
         raise RuntimeError(
             "Cannot adopt existing unversioned database schema; missing model tables: "
             f"{missing}."
         )
 
     model_columns = _model_columns_by_table()
+    tables_to_check = model_tables if model_tables <= table_names else LEGACY_MODEL_TABLES
     missing_columns = {
         table_name: model_columns[table_name] - columns_by_table.get(table_name, set())
-        for table_name in model_tables
+        for table_name in tables_to_check
     }
     missing_columns = {table: columns for table, columns in missing_columns.items() if columns}
     unsupported_missing_columns = {
@@ -107,7 +111,12 @@ def _legacy_schema_patch(
         if "ix_jobs_queue_job_id" not in indexes_by_table.get("jobs", set()):
             missing_indexes.add("ix_jobs_queue_job_id")
 
-    return LegacySchemaPatch(missing_columns=missing_columns, missing_indexes=missing_indexes)
+    stamp_revision = "head" if model_tables <= table_names else LEGACY_SCHEMA_REVISION
+    return LegacySchemaPatch(
+        missing_columns=missing_columns,
+        missing_indexes=missing_indexes,
+        stamp_revision=stamp_revision,
+    )
 
 
 def _inspect_legacy_schema(connection: Connection) -> LegacySchemaPatch | None:
@@ -149,7 +158,7 @@ def _adopt_legacy_schema(command: object, config: object) -> bool:
             return False
         _apply_legacy_schema_patch(connection, patch)
 
-    command.stamp(config, "head")
+    command.stamp(config, patch.stamp_revision)
     return True
 
 
@@ -159,6 +168,7 @@ def run_migrations() -> None:
 
     config = Config(str(ALEMBIC_CONFIG_PATH))
     if _adopt_legacy_schema(command, config):
+        command.upgrade(config, "head")
         return
     command.upgrade(config, "head")
 

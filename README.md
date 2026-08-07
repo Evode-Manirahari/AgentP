@@ -14,6 +14,7 @@ The first product path is intentionally narrow:
 4. Run the job in an RQ worker using deterministic PDF tools.
 5. Validate the output before marking the job complete.
 6. Return short-lived download URLs, validation details, and audit events.
+7. Deliver signed completion webhooks with durable delivery history.
 
 MCP tools expose the same job service as the REST API. There is no separate AI chat layer.
 
@@ -143,6 +144,40 @@ request returns an `IDEMPOTENCY_KEY_CONFLICT` error.
 
 In Docker Compose, signed download URLs use `AGENTPDF_S3_PUBLIC_ENDPOINT_URL=http://localhost:9000` so links returned to host clients are reachable outside the Docker network.
 
+## Webhooks
+
+Register an endpoint for terminal job events:
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/webhooks \
+  -H "X-API-Key: local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/agentp/events",
+    "events": ["job.succeeded", "job.failed", "job.canceled"]
+  }'
+```
+
+The response returns a `signing_secret` once. Each delivery includes
+`X-AgentP-Delivery`, `X-AgentP-Event`, `X-AgentP-Timestamp`, and
+`X-AgentP-Signature` headers. Verify the signature as an HMAC-SHA256 over
+`<timestamp>.<raw-request-body>` and compare it using a constant-time function.
+
+Inspect delivery attempts or disable an endpoint:
+
+```bash
+curl -sS 'http://localhost:8000/v1/webhooks/deliveries?status=failed' \
+  -H "X-API-Key: local-dev-key"
+```
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/webhooks/wh_.../disable \
+  -H "X-API-Key: local-dev-key"
+```
+
+Deliveries are retried with backoff. A webhook failure is recorded but does not
+change the completed job's status.
+
 ## MCP Tools
 
 The MCP server exposes strongly typed tools:
@@ -188,7 +223,6 @@ Not in v0:
 
 - User accounts and organizations.
 - Billing.
-- Webhooks.
 - True redaction.
 - Electronic signatures.
 - Natural-language workflow planning.

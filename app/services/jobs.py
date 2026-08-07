@@ -34,6 +34,7 @@ from app.schemas import (
 )
 from app.services.audit import add_audit_event
 from app.services.storage import StorageService
+from app.services.webhooks import safe_queue_terminal_job_webhooks
 from worker.queue import enqueue_job
 
 OCR_LANGUAGE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-")
@@ -331,6 +332,11 @@ def cancel_job(
         payload={"queue_job_id": job.queue_job_id},
     )
     session.commit()
+    safe_queue_terminal_job_webhooks(
+        job_id=job.id,
+        event_type="job.canceled",
+        settings=settings or get_settings(),
+    )
     return job
 
 

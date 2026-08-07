@@ -1,6 +1,7 @@
 alembic>=1.13,<2
 boto3>=1.34,<2
 fastapi>=0.115,<1
+httpx>=0.27,<1
 mcp>=2,<3
 ocrmypdf>=16,<18
 pikepdf>=9,<11

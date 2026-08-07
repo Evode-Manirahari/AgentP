@@ -15,6 +15,7 @@ from app.operations.pdf_utils import sha256_path
 from app.services.audit import add_audit_event
 from app.services.storage import StorageService
 from app.services.validation import validate_input_pdf, validate_operation_result
+from app.services.webhooks import deliver_webhook_delivery, safe_queue_terminal_job_webhooks
 
 TERMINAL_JOB_STATUSES = {
     JobStatus.SUCCEEDED.value,
@@ -40,6 +41,7 @@ def _mark_failed(job_id: str, error: KnownOperationError) -> None:
             payload=error.to_dict()["error"],
         )
         session.commit()
+    safe_queue_terminal_job_webhooks(job_id=job_id, event_type="job.failed")
 
 
 def _load_inputs(job_id: str) -> list[JobInput]:
@@ -184,6 +186,11 @@ def process_job(job_id: str) -> None:
                     },
                 )
                 session.commit()
+                safe_queue_terminal_job_webhooks(
+                    job_id=job.id,
+                    event_type="job.succeeded",
+                    settings=settings,
+                )
     except KnownOperationError as exc:
         _mark_failed(job_id, exc)
         raise
@@ -196,3 +203,7 @@ def process_job(job_id: str) -> None:
         )
         _mark_failed(job_id, error)
         raise
+
+
+def process_webhook_delivery(delivery_id: str) -> None:
+    deliver_webhook_delivery(delivery_id)

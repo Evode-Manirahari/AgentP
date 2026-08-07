@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     operation_timeout_seconds: int = Field(default=300, gt=0)
     qpdf_timeout_seconds: int = Field(default=30, gt=0)
     download_url_expires_seconds: int = Field(default=900, gt=0)
+    webhook_delivery_timeout_seconds: int = Field(default=10, gt=0)
+    webhook_max_attempts: int = Field(default=3, gt=0)
     temp_prefix: str = "agentp-"
 
 

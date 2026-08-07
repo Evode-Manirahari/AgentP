@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 OperationName = Literal["merge", "split", "ocr", "compress", "extract_text"]
+WebhookEventName = Literal["job.succeeded", "job.failed", "job.canceled"]
+WebhookDeliveryState = Literal["pending", "succeeded", "failed"]
+DEFAULT_WEBHOOK_EVENTS: list[WebhookEventName] = [
+    "job.succeeded",
+    "job.failed",
+    "job.canceled",
+]
 
 
 class FileUploadResponse(BaseModel):
@@ -103,6 +111,62 @@ class JobStatusResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class WebhookCreate(BaseModel):
+    url: str = Field(max_length=2048)
+    events: list[WebhookEventName] = Field(
+        default_factory=lambda: list(DEFAULT_WEBHOOK_EVENTS),
+        min_length=1,
+    )
+    active: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Webhook URL must be an absolute http or https URL.")
+        return value
+
+
+class WebhookEndpointResponse(BaseModel):
+    webhook_id: str
+    url: str
+    events: list[WebhookEventName]
+    active: bool
+    created_at: datetime
+
+
+class WebhookCreateResponse(WebhookEndpointResponse):
+    signing_secret: str
+
+
+class WebhookEndpointListResponse(BaseModel):
+    webhooks: list[WebhookEndpointResponse]
+    count: int
+    limit: int
+    offset: int
+
+
+class WebhookDeliveryResponse(BaseModel):
+    delivery_id: str
+    webhook_id: str
+    job_id: str
+    event_type: WebhookEventName
+    status: WebhookDeliveryState
+    attempts: int
+    last_status_code: int | None = None
+    last_error: str | None = None
+    created_at: datetime
+    delivered_at: datetime | None = None
+
+
+class WebhookDeliveryListResponse(BaseModel):
+    deliveries: list[WebhookDeliveryResponse]
+    count: int
+    limit: int
+    offset: int
 
 
 class ErrorBody(BaseModel):
