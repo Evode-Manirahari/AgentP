@@ -227,6 +227,22 @@ curl -sS -X POST http://localhost:8000/v1/webhooks/wh_.../disable \
 Deliveries are retried with backoff. A webhook failure is recorded but does not
 change the completed job's status.
 
+Webhook targets must resolve to a public address. Private, loopback, link-local,
+reserved, multicast, and unspecified addresses are refused with
+`WEBHOOK_TARGET_NOT_ALLOWED` — otherwise any holder of the API key could aim deliveries at
+cloud instance metadata or internal services and read the result back out of the delivery
+log. The check runs at registration and again at delivery, so a hostname that is later
+repointed inward stops being delivered to.
+
+To receive webhooks on `localhost` during development:
+
+```bash
+AGENTPDF_WEBHOOK_ALLOW_PRIVATE_URLS=true
+```
+
+A hostname that does not resolve is accepted at registration; the delivery attempt fails
+on its own if it stays unreachable.
+
 ## MCP Tools
 
 The MCP server exposes strongly typed tools:
@@ -265,6 +281,7 @@ Implemented in v0:
 - Immutable input and output storage keys.
 - Temporary per-job workspace cleanup.
 - Allowlisted operations and parameters.
+- Webhook targets restricted to public addresses.
 - Subprocess calls use argument arrays, not shell strings.
 - Structural validation after PDF operations.
 - Audit events for job creation, enqueue, validation, success, and failure.
