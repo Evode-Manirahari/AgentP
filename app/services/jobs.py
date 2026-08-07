@@ -24,6 +24,7 @@ from app.models import (
 from app.operations.base import KnownOperationError
 from app.operations.compress import PRESETS
 from app.operations.executor import SUPPORTED_OPERATIONS
+from app.operations.prepare_packet import PACKET_ORDERS
 from app.schemas import (
     AuditEventResponse,
     JobCreate,
@@ -41,11 +42,13 @@ from worker.queue import enqueue_job
 OCR_LANGUAGE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-")
 ALLOWED_PARAMETERS = {
     "merge": {"ocr_if_needed", "language", "deskew"},
+    "prepare_packet": {"language", "deskew", "order"},
     "split": {"page_ranges"},
     "ocr": {"language", "deskew"},
     "compress": {"preset"},
     "extract_text": {"include_coordinates"},
 }
+MULTI_INPUT_OPERATIONS = {"merge", "prepare_packet"}
 JOB_STATUSES = {status.value for status in JobStatus}
 TERMINAL_JOB_STATUSES = {
     JobStatus.SUCCEEDED.value,
@@ -125,11 +128,11 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
             details={"operation": request.operation, "supported": sorted(SUPPORTED_OPERATIONS)},
         )
 
-    if request.operation == "merge" and len(documents) < 2:
+    if request.operation in MULTI_INPUT_OPERATIONS and len(documents) < 2:
         raise KnownOperationError(
             "NOT_ENOUGH_INPUTS",
-            "Merge requires at least two PDF inputs.",
-            details={"input_count": len(documents)},
+            f"{request.operation} requires at least two PDF inputs.",
+            details={"operation": request.operation, "input_count": len(documents)},
         )
 
     if request.operation in {"split", "ocr", "compress", "extract_text"} and len(documents) != 1:
@@ -145,6 +148,17 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
         _require_bool_parameter(request, "ocr_if_needed")
         _require_bool_parameter(request, "deskew")
         _validate_ocr_language(request)
+
+    if request.operation == "prepare_packet":
+        _require_bool_parameter(request, "deskew")
+        _validate_ocr_language(request)
+        order = request.parameters.get("order", "as_provided")
+        if not isinstance(order, str) or order not in PACKET_ORDERS:
+            raise KnownOperationError(
+                "INVALID_PACKET_ORDER",
+                "Unsupported packet order.",
+                details={"order": order, "allowed": sorted(PACKET_ORDERS)},
+            )
 
     if request.operation == "split":
         ranges = request.parameters.get("page_ranges")

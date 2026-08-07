@@ -1,4 +1,4 @@
-.PHONY: build up down logs ps test smoke db-upgrade container-test demo
+.PHONY: build up down logs ps test smoke db-upgrade container-test demo demo-packet
 
 build:
 	docker compose build
@@ -30,3 +30,6 @@ container-test:
 
 demo:
 	./scripts/demo_e2e.sh
+
+demo-packet:
+	./scripts/demo_packet.sh

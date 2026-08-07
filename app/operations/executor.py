@@ -10,9 +10,10 @@ from app.operations.extract import extract_text_pdf
 from app.operations.merge import merge_pdfs
 from app.operations.ocr import ocr_pdf
 from app.operations.pdf_utils import is_likely_scanned
+from app.operations.prepare_packet import prepare_packet
 from app.operations.split import split_pdf
 
-SUPPORTED_OPERATIONS = {"merge", "split", "ocr", "compress", "extract_text"}
+SUPPORTED_OPERATIONS = {"merge", "split", "ocr", "compress", "extract_text", "prepare_packet"}
 
 
 def execute_operation(
@@ -22,6 +23,7 @@ def execute_operation(
     parameters: dict[str, Any],
     workspace: Path,
     settings: Settings,
+    input_names: list[str] | None = None,
 ) -> OperationResult:
     if operation not in SUPPORTED_OPERATIONS:
         raise KnownOperationError(
@@ -54,6 +56,17 @@ def execute_operation(
         return OperationResult(
             outputs=result.outputs,
             metadata={**result.metadata, "ocr_applied_to_inputs": ocr_applied},
+        )
+
+    if operation == "prepare_packet":
+        return prepare_packet(
+            input_paths,
+            workspace,
+            input_names=input_names,
+            language=str(parameters.get("language", "eng")),
+            deskew=bool(parameters.get("deskew", True)),
+            order=str(parameters.get("order", "as_provided")),
+            timeout_seconds=settings.operation_timeout_seconds,
         )
 
     if operation == "split":
