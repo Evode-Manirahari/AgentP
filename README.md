@@ -140,7 +140,13 @@ curl -L http://localhost:8000/v1/files/file_.../content \
 
 Idempotency keys are request-scoped. Reusing the same `Idempotency-Key` with the same
 operation, inputs, and parameters returns the existing job. Reusing the key for a different
-request returns an `IDEMPOTENCY_KEY_CONFLICT` error.
+request returns an `IDEMPOTENCY_KEY_CONFLICT` error. Requests that race on the same key
+collapse onto a single job rather than failing.
+
+A `QUEUE_UNAVAILABLE` error is retryable: the job record exists but never reached the
+worker queue. Retrying with the same `Idempotency-Key` re-enqueues that job and records a
+`job.enqueue_retried` audit event. Jobs that already reached the queue are never enqueued
+twice, so retrying is safe for every other outcome as well.
 
 In Docker Compose, signed download URLs use `AGENTPDF_S3_PUBLIC_ENDPOINT_URL=http://localhost:9000` so links returned to host clients are reachable outside the Docker network.
 
