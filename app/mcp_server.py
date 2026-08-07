@@ -128,6 +128,27 @@ def merge_pdfs(
 
 
 @mcp.tool()
+def prepare_packet(
+    file_ids: list[str],
+    order: str = "as_provided",
+    language: str = "eng",
+    deskew: bool = True,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Turn a collection of documents into one validated packet PDF plus an audit report.
+
+    Inspects every input, OCRs the scanned ones, orders them ("as_provided" or "filename"),
+    merges them, and verifies the packet contains every input page.
+    """
+    return _submit_job(
+        operation="prepare_packet",
+        file_ids=file_ids,
+        parameters={"order": order, "language": language, "deskew": deskew},
+        idempotency_key=idempotency_key,
+    )
+
+
+@mcp.tool()
 def split_pdf(
     file_id: str,
     page_ranges: list[str],

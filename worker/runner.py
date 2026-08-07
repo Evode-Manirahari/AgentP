@@ -78,6 +78,7 @@ def process_job(job_id: str) -> None:
         with tempfile.TemporaryDirectory(prefix=f"{settings.temp_prefix}{job_id}-") as tmp_dir:
             workspace = Path(tmp_dir)
             input_paths: list[Path] = []
+            input_names: list[str] = []
             input_validations: list[dict] = []
 
             for job_input in _load_inputs(job_id):
@@ -93,6 +94,7 @@ def process_job(job_id: str) -> None:
                     storage.download_to_path(key=document.storage_key, path=path)
                     validation = validate_input_pdf(path, settings=settings)
                     input_paths.append(path)
+                    input_names.append(document.original_filename)
                     input_validations.append(
                         {
                             "file_id": document.id,
@@ -120,6 +122,7 @@ def process_job(job_id: str) -> None:
                 parameters=job.parameters,
                 workspace=workspace,
                 settings=settings,
+                input_names=input_names,
             )
 
             with SessionLocal() as session:

@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
-OperationName = Literal["merge", "split", "ocr", "compress", "extract_text"]
+OperationName = Literal["merge", "prepare_packet", "split", "ocr", "compress", "extract_text"]
 WebhookEventName = Literal["job.succeeded", "job.failed", "job.canceled"]
 WebhookDeliveryState = Literal["pending", "succeeded", "failed"]
 DEFAULT_WEBHOOK_EVENTS: list[WebhookEventName] = [
