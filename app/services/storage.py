@@ -80,6 +80,10 @@ class StorageService:
     def download_to_path(self, *, key: str, path: Path) -> None:
         self.client.download_file(self.settings.s3_bucket, key, str(path))
 
+    def delete_object(self, *, key: str) -> None:
+        """Remove the stored bytes. Deleting an absent key is not an error in S3."""
+        self.client.delete_object(Bucket=self.settings.s3_bucket, Key=key)
+
     def presigned_download_url(self, *, key: str, filename: str) -> str:
         return self.presign_client.generate_presigned_url(
             "get_object",
