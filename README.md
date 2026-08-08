@@ -124,8 +124,16 @@ Two outputs come back. `packet.pdf` is the merged, searchable result.
 timeline, the final sequence, and any warnings.
 
 Warnings describe an input without failing the packet. `LOW_TEXT_AFTER_OCR` means a
-document was OCRed but still holds almost no text — usually an unreadable scan. Warnings
-appear in the audit report and in the job's `validation.warnings`.
+document was OCRed but still holds almost no text — usually an unreadable scan.
+
+A job that produced warnings finishes as `completed_with_warnings` rather than `succeeded`.
+Both are success: every assertion passed and the outputs are valid. The distinct status
+exists so a caller polling `status` learns that something needs a human look without
+having to parse the audit report. Warnings are listed on the job as `warnings`, counted as
+`warning_count` in job listings, and included in the webhook payload.
+
+**Treat `succeeded` and `completed_with_warnings` as the same outcome unless you act on
+warnings.** Code that checks `status == "succeeded"` will silently skip warned jobs.
 
 The job only reaches `succeeded` after two assertions hold: the packet contains every
 input page, and the audit report describes every input document. Either failing produces
@@ -203,9 +211,18 @@ curl -sS -X POST http://localhost:8000/v1/webhooks \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/agentp/events",
-    "events": ["job.succeeded", "job.failed", "job.canceled"]
+    "events": [
+      "job.succeeded",
+      "job.completed_with_warnings",
+      "job.failed",
+      "job.canceled"
+    ]
   }'
 ```
+
+Omitting `events` registers all four. A packet that finished with warnings emits
+`job.completed_with_warnings`, not `job.succeeded`, so an endpoint that subscribes only to
+`job.succeeded` will never hear about it.
 
 The response returns a `signing_secret` once. Each delivery includes
 `X-AgentP-Delivery`, `X-AgentP-Event`, `X-AgentP-Timestamp`, and

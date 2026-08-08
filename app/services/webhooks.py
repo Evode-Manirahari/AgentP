@@ -282,6 +282,7 @@ def build_job_webhook_payload(*, event_type: str, job: Job) -> dict[str, Any]:
         }
         for output in job.outputs
     ]
+    warnings = (job.validation or {}).get("warnings") or []
     return {
         "event": event_type,
         "job": {
@@ -291,6 +292,7 @@ def build_job_webhook_payload(*, event_type: str, job: Job) -> dict[str, Any]:
             "parameters": job.parameters,
             "outputs": outputs,
             "validation": job.validation,
+            "warnings": warnings,
             "error": _job_error(job),
             "created_at": _isoformat_datetime(job.created_at),
             "started_at": _isoformat_datetime(job.started_at),
