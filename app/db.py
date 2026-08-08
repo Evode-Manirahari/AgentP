@@ -21,12 +21,20 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expi
 ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
 LEGACY_SCHEMA_REVISION = "0002_job_queue_id"
 LEGACY_MODEL_TABLES = {"audit_events", "documents", "job_inputs", "job_outputs", "jobs"}
-ADOPTABLE_LEGACY_COLUMNS = {"jobs": {"idempotency_fingerprint", "queue_job_id"}}
+ADOPTABLE_LEGACY_COLUMNS = {
+    "jobs": {"idempotency_fingerprint", "queue_job_id"},
+    "documents": {"deleted_at"},
+}
+# Columns introduced by migrations newer than LEGACY_SCHEMA_REVISION. A database stamped at
+# that revision has them applied by the upgrade that follows adoption, so patching them in
+# by hand would make the migration fail on an already-existing column.
+POST_LEGACY_REVISION_COLUMNS = {"documents": {"deleted_at"}}
 LEGACY_COLUMN_DDL = {
     ("jobs", "idempotency_fingerprint"): (
         "ALTER TABLE jobs ADD COLUMN idempotency_fingerprint VARCHAR(64)"
     ),
     ("jobs", "queue_job_id"): "ALTER TABLE jobs ADD COLUMN queue_job_id VARCHAR(128)",
+    ("documents", "deleted_at"): "ALTER TABLE documents ADD COLUMN deleted_at TIMESTAMPTZ",
 }
 LEGACY_INDEX_DDL = {
     "ix_jobs_queue_job_id": (
@@ -82,11 +90,18 @@ def _legacy_schema_patch(
         )
 
     model_columns = _model_columns_by_table()
-    tables_to_check = model_tables if model_tables <= table_names else LEGACY_MODEL_TABLES
+    adopts_whole_model = model_tables <= table_names
+    tables_to_check = model_tables if adopts_whole_model else LEGACY_MODEL_TABLES
     missing_columns = {
         table_name: model_columns[table_name] - columns_by_table.get(table_name, set())
         for table_name in tables_to_check
     }
+    if not adopts_whole_model:
+        # Stamping at LEGACY_SCHEMA_REVISION, so later migrations still have to run.
+        missing_columns = {
+            table_name: columns - POST_LEGACY_REVISION_COLUMNS.get(table_name, set())
+            for table_name, columns in missing_columns.items()
+        }
     missing_columns = {table: columns for table, columns in missing_columns.items() if columns}
     unsupported_missing_columns = {
         table: columns - ADOPTABLE_LEGACY_COLUMNS.get(table, set())
@@ -111,7 +126,7 @@ def _legacy_schema_patch(
         if "ix_jobs_queue_job_id" not in indexes_by_table.get("jobs", set()):
             missing_indexes.add("ix_jobs_queue_job_id")
 
-    stamp_revision = "head" if model_tables <= table_names else LEGACY_SCHEMA_REVISION
+    stamp_revision = "head" if adopts_whole_model else LEGACY_SCHEMA_REVISION
     return LegacySchemaPatch(
         missing_columns=missing_columns,
         missing_indexes=missing_indexes,

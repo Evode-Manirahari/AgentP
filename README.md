@@ -189,6 +189,29 @@ curl -L http://localhost:8000/v1/files/file_.../content \
   -o output.pdf
 ```
 
+## Deleting Documents
+
+```bash
+curl -sS -X DELETE http://localhost:8000/v1/files/file_... \
+  -H "X-API-Key: local-dev-key"
+```
+
+Deletion purges the stored bytes and keeps the record. The document row survives with
+`status: "deleted"` and a `deleted_at` timestamp, so the checksum, filename, page count,
+and the job trail that produced it stay intact — the bytes go, the provenance does not.
+Removing an output also records an `output.deleted` event on the job that produced it.
+
+- Reading a deleted file returns `410 FILE_DELETED` rather than `404`, so a caller can
+  tell "purged" apart from "never existed".
+- A job listing a deleted file as an output still lists it, with `status: "deleted"` and a
+  null `download_url`.
+- Deleting is idempotent. Deleting an already-deleted file returns `200`.
+- A file that a queued, running, or validating job needs as an input is refused with
+  `409 FILE_IN_USE` and the blocking job IDs. Finish or cancel those jobs first.
+- A deleted file cannot be an input to a new job (`FILE_NOT_VALIDATED`).
+
+Scheduled retention is not implemented. Deletion is explicit and caller-driven in v0.
+
 Idempotency keys are request-scoped. Reusing the same `Idempotency-Key` with the same
 operation, inputs, and parameters returns the existing job. Reusing the key for a different
 request returns an `IDEMPOTENCY_KEY_CONFLICT` error. Requests that race on the same key
@@ -299,6 +322,7 @@ Implemented in v0:
 - Temporary per-job workspace cleanup.
 - Allowlisted operations and parameters.
 - Webhook targets restricted to public addresses.
+- Caller-driven document deletion that purges stored bytes.
 - Subprocess calls use argument arrays, not shell strings.
 - Structural validation after PDF operations.
 - Audit events for job creation, enqueue, validation, success, and failure.
@@ -307,6 +331,7 @@ Not in v0:
 
 - User accounts and organizations.
 - Billing.
+- Scheduled retention and automatic expiry.
 - True redaction.
 - Electronic signatures.
 - Natural-language workflow planning.

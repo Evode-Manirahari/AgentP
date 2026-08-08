@@ -36,6 +36,12 @@ class DownloadResponse(BaseModel):
     expires_in_seconds: int
 
 
+class DocumentDeleteResponse(BaseModel):
+    file_id: str
+    status: str
+    deleted_at: datetime | None = None
+
+
 class OperationParameterResponse(BaseModel):
     name: str
     type: str
@@ -97,7 +103,8 @@ class JobOutputResponse(BaseModel):
     filename: str
     mime_type: str
     page_count: int | None
-    download_url: str
+    status: str = "validated"
+    download_url: str | None = None
 
 
 class AuditEventResponse(BaseModel):

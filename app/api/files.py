@@ -15,8 +15,9 @@ from app.db import get_session
 from app.models import Document, DocumentStatus
 from app.operations.base import KnownOperationError
 from app.operations.pdf_utils import sha256_path
-from app.schemas import DownloadResponse, FileUploadResponse
+from app.schemas import DocumentDeleteResponse, DownloadResponse, FileUploadResponse
 from app.services.auth import require_api_key
+from app.services.documents import delete_document, is_deleted
 from app.services.storage import StorageService
 from app.services.validation import validate_input_pdf
 
@@ -41,6 +42,28 @@ def _get_document_or_404(session: Session, file_id: str) -> Document:
     document = session.get(Document, file_id)
     if document is None:
         raise _file_not_found(file_id)
+    return document
+
+
+def _get_readable_document(session: Session, file_id: str) -> Document:
+    document = _get_document_or_404(session, file_id)
+    if is_deleted(document):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error": {
+                    "code": "FILE_DELETED",
+                    "message": "The file was deleted and its contents are no longer stored.",
+                    "details": {
+                        "file_id": document.id,
+                        "deleted_at": (
+                            document.deleted_at.isoformat() if document.deleted_at else None
+                        ),
+                    },
+                    "retryable": False,
+                }
+            },
+        )
     return document
 
 
@@ -117,13 +140,30 @@ async def upload_file(
         tmp_path.unlink(missing_ok=True)
 
 
+@router.delete("/{file_id}", response_model=DocumentDeleteResponse)
+def delete_file(
+    file_id: str,
+    session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DocumentDeleteResponse:
+    try:
+        return delete_document(session, file_id=file_id, settings=settings)
+    except KnownOperationError as exc:
+        status_code = status.HTTP_400_BAD_REQUEST
+        if exc.code == "FILE_NOT_FOUND":
+            status_code = status.HTTP_404_NOT_FOUND
+        if exc.code == "FILE_IN_USE":
+            status_code = status.HTTP_409_CONFLICT
+        raise operation_http_error(exc, status_code=status_code) from exc
+
+
 @router.get("/{file_id}/download", response_model=DownloadResponse)
 def download_file(
     file_id: str,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DownloadResponse:
-    document = _get_document_or_404(session, file_id)
+    document = _get_readable_document(session, file_id)
     storage = StorageService(settings)
     return DownloadResponse(
         file_id=document.id,
@@ -141,7 +181,7 @@ def download_file_content(
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> FileResponse:
-    document = _get_document_or_404(session, file_id)
+    document = _get_readable_document(session, file_id)
     suffix = Path(document.original_filename).suffix or ".pdf"
 
     with tempfile.NamedTemporaryFile(

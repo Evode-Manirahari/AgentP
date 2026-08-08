@@ -31,6 +31,7 @@ class DocumentStatus(StrEnum):
     UPLOADED = "uploaded"
     VALIDATED = "validated"
     REJECTED = "rejected"
+    DELETED = "deleted"
 
 
 class JobStatus(StrEnum):
@@ -66,6 +67,7 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Job(Base):

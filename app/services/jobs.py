@@ -35,6 +35,7 @@ from app.schemas import (
     JobSummaryResponse,
 )
 from app.services.audit import add_audit_event
+from app.services.documents import is_deleted
 from app.services.storage import StorageService
 from app.services.webhooks import safe_queue_terminal_job_webhooks
 from worker.queue import enqueue_job
@@ -498,9 +499,15 @@ def build_job_response(
             filename=output.document.original_filename,
             mime_type=output.document.mime_type,
             page_count=output.document.page_count,
-            download_url=storage.presigned_download_url(
-                key=output.document.storage_key,
-                filename=output.document.original_filename,
+            status=output.document.status,
+            # A purged output keeps its provenance but has no bytes left to sign a URL for.
+            download_url=(
+                None
+                if is_deleted(output.document)
+                else storage.presigned_download_url(
+                    key=output.document.storage_key,
+                    filename=output.document.original_filename,
+                )
             ),
         )
         for output in job.outputs
