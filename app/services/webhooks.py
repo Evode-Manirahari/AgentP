@@ -9,6 +9,7 @@ import secrets
 import socket
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -399,6 +400,74 @@ def _record_enqueue_failure(delivery_id: str, error: Exception) -> None:
         logger.exception("Could not record enqueue failure for webhook delivery %s.", delivery_id)
 
 
+@dataclass(frozen=True)
+class DeliveryPlan:
+    delivery_id: str
+    event_type: str
+    url: str
+    secret: str
+    body: bytes
+    attempts: int
+
+
+def _start_delivery(delivery_id: str, *, settings: Settings) -> DeliveryPlan | None:
+    """Load everything an attempt needs, apply the guards, and release the session."""
+    with SessionLocal() as session:
+        delivery = session.get(WebhookDelivery, delivery_id)
+        if delivery is None:
+            return None
+
+        endpoint = delivery.endpoint
+        refusal: str | None = None
+        if not endpoint.active:
+            refusal = "Webhook is inactive."
+        else:
+            # Re-checked here because the endpoint may have been registered before this
+            # guard existed, or its DNS record may since have been pointed inward.
+            try:
+                ensure_public_webhook_target(endpoint.url, settings=settings)
+            except KnownOperationError as exc:
+                refusal = exc.message
+
+        if refusal is not None:
+            _mark_delivery_failure(delivery, attempts=delivery.attempts, error=refusal)
+            session.add(delivery)
+            session.commit()
+            return None
+
+        return DeliveryPlan(
+            delivery_id=delivery.id,
+            event_type=delivery.event_type,
+            url=endpoint.url,
+            secret=endpoint.secret,
+            body=serialize_webhook_payload(delivery.payload),
+            attempts=delivery.attempts,
+        )
+
+
+def _record_delivery_state(
+    delivery_id: str,
+    *,
+    attempts: int,
+    status: str,
+    status_code: int | None = None,
+    error: str | None = None,
+    delivered: bool = False,
+) -> None:
+    with SessionLocal() as session:
+        delivery = session.get(WebhookDelivery, delivery_id)
+        if delivery is None:
+            return
+        delivery.attempts = attempts
+        delivery.status = status
+        delivery.last_status_code = status_code
+        delivery.last_error = error[:2000] if error else None
+        if delivered:
+            delivery.delivered_at = datetime.now(UTC)
+        session.add(delivery)
+        session.commit()
+
+
 def deliver_webhook_delivery(
     delivery_id: str,
     *,
@@ -407,83 +476,70 @@ def deliver_webhook_delivery(
     client_factory: Callable[..., httpx.Client] = httpx.Client,
 ) -> None:
     active_settings = settings or get_settings()
-    with SessionLocal() as session:
-        delivery = session.get(WebhookDelivery, delivery_id)
-        if delivery is None:
-            return
-        endpoint = delivery.endpoint
-        if not endpoint.active:
-            _mark_delivery_failure(
-                delivery,
-                attempts=delivery.attempts,
-                error="Webhook is inactive.",
-            )
-            session.add(delivery)
-            session.commit()
-            return
+    plan = _start_delivery(delivery_id, settings=active_settings)
+    if plan is None:
+        return
 
-        # Re-checked here because the endpoint may have been registered before this guard
-        # existed, or its DNS record may since have been pointed inward.
+    max_attempts = active_settings.webhook_max_attempts
+
+    # Each state change opens its own short session. A receiver that is slow, or a backoff
+    # between attempts, must never hold a database connection for its duration.
+    for attempt in range(plan.attempts + 1, max_attempts + 1):
+        _record_delivery_state(
+            plan.delivery_id,
+            attempts=attempt,
+            status=WebhookDeliveryStatus.PENDING.value,
+        )
+
+        timestamp = int(time.time())
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "AgentP-Webhooks/0.1",
+            "X-AgentP-Delivery": plan.delivery_id,
+            "X-AgentP-Event": plan.event_type,
+            "X-AgentP-Timestamp": str(timestamp),
+            "X-AgentP-Signature": sign_webhook_payload(
+                secret=plan.secret,
+                timestamp=timestamp,
+                body=plan.body,
+            ),
+        }
+
+        status_code: int | None = None
+        error: str | None = None
         try:
-            ensure_public_webhook_target(endpoint.url, settings=active_settings)
-        except KnownOperationError as exc:
-            _mark_delivery_failure(
-                delivery,
-                attempts=delivery.attempts,
-                error=exc.message,
-            )
-            session.add(delivery)
-            session.commit()
+            with client_factory(
+                timeout=active_settings.webhook_delivery_timeout_seconds
+            ) as client:
+                response = client.post(plan.url, content=plan.body, headers=headers)
+            status_code = response.status_code
+            if 200 <= status_code < 300:
+                _record_delivery_state(
+                    plan.delivery_id,
+                    attempts=attempt,
+                    status=WebhookDeliveryStatus.SUCCEEDED.value,
+                    status_code=status_code,
+                    delivered=True,
+                )
+                return
+            error = f"HTTP {status_code}"
+        except Exception as exc:
+            error = str(exc)
+
+        exhausted = attempt >= max_attempts
+        _record_delivery_state(
+            plan.delivery_id,
+            attempts=attempt,
+            status=(
+                WebhookDeliveryStatus.FAILED.value
+                if exhausted
+                else WebhookDeliveryStatus.PENDING.value
+            ),
+            status_code=status_code,
+            error=error,
+        )
+        if exhausted:
             return
 
-        body = serialize_webhook_payload(delivery.payload)
-        max_attempts = active_settings.webhook_max_attempts
-
-        for attempt in range(delivery.attempts + 1, max_attempts + 1):
-            timestamp = int(time.time())
-            headers = {
-                "Content-Type": "application/json",
-                "User-Agent": "AgentP-Webhooks/0.1",
-                "X-AgentP-Delivery": delivery.id,
-                "X-AgentP-Event": delivery.event_type,
-                "X-AgentP-Timestamp": str(timestamp),
-                "X-AgentP-Signature": sign_webhook_payload(
-                    secret=endpoint.secret,
-                    timestamp=timestamp,
-                    body=body,
-                ),
-            }
-
-            delivery.attempts = attempt
-            delivery.status = WebhookDeliveryStatus.PENDING.value
-            session.add(delivery)
-            session.commit()
-
-            try:
-                with client_factory(
-                    timeout=active_settings.webhook_delivery_timeout_seconds
-                ) as client:
-                    response = client.post(endpoint.url, content=body, headers=headers)
-                delivery.last_status_code = response.status_code
-                delivery.last_error = None
-                if 200 <= response.status_code < 300:
-                    delivery.status = WebhookDeliveryStatus.SUCCEEDED.value
-                    delivery.delivered_at = datetime.now(UTC)
-                    session.add(delivery)
-                    session.commit()
-                    return
-                delivery.last_error = f"HTTP {response.status_code}"
-            except Exception as exc:
-                delivery.last_status_code = None
-                delivery.last_error = str(exc)[:2000]
-
-            if attempt >= max_attempts:
-                delivery.status = WebhookDeliveryStatus.FAILED.value
-                session.add(delivery)
-                session.commit()
-                return
-
-            session.add(delivery)
-            session.commit()
-            backoff_index = min(attempt - 1, len(WEBHOOK_BACKOFF_SECONDS) - 1)
-            sleep_fn(WEBHOOK_BACKOFF_SECONDS[backoff_index])
+        backoff_index = min(attempt - 1, len(WEBHOOK_BACKOFF_SECONDS) - 1)
+        sleep_fn(WEBHOOK_BACKOFF_SECONDS[backoff_index])
