@@ -42,6 +42,26 @@ class DocumentDeleteResponse(BaseModel):
     deleted_at: datetime | None = None
 
 
+class FileSummaryResponse(BaseModel):
+    file_id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    page_count: int | None = None
+    status: str
+    source_job_id: str | None = None
+    created_at: datetime
+    deleted_at: datetime | None = None
+
+
+class FileListResponse(BaseModel):
+    files: list[FileSummaryResponse]
+    count: int
+    limit: int
+    offset: int
+
+
 class OperationParameterResponse(BaseModel):
     name: str
     type: str

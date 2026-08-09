@@ -189,6 +189,16 @@ curl -L http://localhost:8000/v1/files/file_.../content \
   -o output.pdf
 ```
 
+List uploaded and produced files, newest first, optionally filtered by status:
+
+```bash
+curl -sS 'http://localhost:8000/v1/files?status=validated&limit=20' \
+  -H "X-API-Key: local-dev-key"
+```
+
+Each entry carries the checksum, page count, status, and `source_job_id` for files a job
+produced, so a caller that lost a `file_id` can find it again.
+
 ## Deleting Documents
 
 ```bash
@@ -288,6 +298,7 @@ on its own if it stays unreachable.
 The MCP server exposes strongly typed tools:
 
 - `list_operations()`
+- `list_files(status, limit, offset)`
 - `list_jobs(status, limit, offset)`
 - `cancel_job(job_id)`
 - `merge_pdfs(file_ids, ocr_if_needed, language, deskew, idempotency_key)`

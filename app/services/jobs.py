@@ -461,7 +461,7 @@ def list_jobs_for_response(
     statement = (
         select(Job)
         .options(selectinload(Job.outputs))
-        .order_by(Job.created_at.desc())
+        .order_by(Job.created_at.desc(), Job.id.desc())
         .limit(limit)
         .offset(offset)
     )
