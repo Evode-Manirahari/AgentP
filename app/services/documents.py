@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.models import Document, DocumentStatus, Job, JobInput, JobStatus
 from app.operations.base import KnownOperationError
-from app.schemas import DocumentDeleteResponse
+from app.schemas import DocumentDeleteResponse, FileListResponse, FileSummaryResponse
 from app.services.audit import add_audit_event
 from app.services.storage import StorageService
 
@@ -19,8 +19,59 @@ ACTIVE_JOB_STATUSES = (
 )
 
 
+DOCUMENT_STATUSES = {status.value for status in DocumentStatus}
+
+
 def is_deleted(document: Document) -> bool:
     return document.status == DocumentStatus.DELETED.value
+
+
+def validate_document_status_filter(status_filter: str | None) -> str | None:
+    if status_filter is None:
+        return None
+    if status_filter not in DOCUMENT_STATUSES:
+        raise KnownOperationError(
+            "INVALID_DOCUMENT_STATUS",
+            "The requested file status filter is not supported.",
+            details={"status": status_filter, "allowed": sorted(DOCUMENT_STATUSES)},
+        )
+    return status_filter
+
+
+def _document_summary(document: Document) -> FileSummaryResponse:
+    return FileSummaryResponse(
+        file_id=document.id,
+        filename=document.original_filename,
+        mime_type=document.mime_type,
+        size_bytes=document.size_bytes,
+        sha256=document.sha256,
+        page_count=document.page_count,
+        status=document.status,
+        source_job_id=document.source_job_id,
+        created_at=document.created_at,
+        deleted_at=document.deleted_at,
+    )
+
+
+def list_documents_for_response(
+    session: Session,
+    *,
+    status_filter: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> FileListResponse:
+    validated_status = validate_document_status_filter(status_filter)
+    statement = select(Document).order_by(Document.created_at.desc()).limit(limit).offset(offset)
+    if validated_status is not None:
+        statement = statement.where(Document.status == validated_status)
+
+    found = list(session.scalars(statement))
+    return FileListResponse(
+        files=[_document_summary(document) for document in found],
+        count=len(found),
+        limit=limit,
+        offset=offset,
+    )
 
 
 def _blocking_job_ids(session: Session, document_id: str) -> list[str]:

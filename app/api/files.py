@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -15,9 +15,14 @@ from app.db import get_session
 from app.models import Document, DocumentStatus
 from app.operations.base import KnownOperationError
 from app.operations.pdf_utils import sha256_path
-from app.schemas import DocumentDeleteResponse, DownloadResponse, FileUploadResponse
+from app.schemas import (
+    DocumentDeleteResponse,
+    DownloadResponse,
+    FileListResponse,
+    FileUploadResponse,
+)
 from app.services.auth import require_api_key
-from app.services.documents import delete_document, is_deleted
+from app.services.documents import delete_document, is_deleted, list_documents_for_response
 from app.services.storage import StorageService
 from app.services.validation import validate_input_pdf
 
@@ -138,6 +143,24 @@ async def upload_file(
         raise operation_http_error(exc) from exc
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+@router.get("", response_model=FileListResponse)
+def list_files(
+    session: Annotated[Session, Depends(get_session)],
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> FileListResponse:
+    try:
+        return list_documents_for_response(
+            session,
+            status_filter=status_filter,
+            limit=limit,
+            offset=offset,
+        )
+    except KnownOperationError as exc:
+        raise operation_http_error(exc) from exc
 
 
 @router.delete("/{file_id}", response_model=DocumentDeleteResponse)

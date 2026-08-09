@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.operations.base import KnownOperationError
 from app.schemas import JobCreate, JobInputRef
+from app.services.documents import list_documents_for_response
 from app.services.jobs import (
     build_job_response,
     cancel_job,
@@ -88,6 +89,39 @@ def list_jobs(
     try:
         with SessionLocal() as session:
             response = list_jobs_for_response(
+                session,
+                status_filter=status,
+                limit=limit,
+                offset=offset,
+            )
+            return response.model_dump(mode="json")
+    except KnownOperationError as exc:
+        return exc.to_dict()
+
+
+@mcp.tool()
+def list_files(
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List uploaded and produced files, newest first, with their status and checksums."""
+    if limit < 1 or limit > 100:
+        return KnownOperationError(
+            "INVALID_LIMIT",
+            "limit must be between 1 and 100.",
+            details={"limit": limit},
+        ).to_dict()
+    if offset < 0:
+        return KnownOperationError(
+            "INVALID_OFFSET",
+            "offset must be greater than or equal to zero.",
+            details={"offset": offset},
+        ).to_dict()
+
+    try:
+        with SessionLocal() as session:
+            response = list_documents_for_response(
                 session,
                 status_filter=status,
                 limit=limit,
