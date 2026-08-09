@@ -203,9 +203,12 @@ def list_webhook_endpoints(
     limit: int = 50,
     offset: int = 0,
 ) -> WebhookEndpointListResponse:
-    statement = select(WebhookEndpoint).order_by(WebhookEndpoint.created_at.desc()).limit(
-        limit
-    ).offset(offset)
+    statement = (
+        select(WebhookEndpoint)
+        .order_by(WebhookEndpoint.created_at.desc(), WebhookEndpoint.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     endpoints = list(session.scalars(statement))
     return WebhookEndpointListResponse(
         webhooks=[_endpoint_response(endpoint) for endpoint in endpoints],
@@ -241,7 +244,9 @@ def list_webhook_deliveries(
     limit: int = 50,
     offset: int = 0,
 ) -> WebhookDeliveryListResponse:
-    statement = select(WebhookDelivery).order_by(WebhookDelivery.created_at.desc())
+    statement = select(WebhookDelivery).order_by(
+        WebhookDelivery.created_at.desc(), WebhookDelivery.id.desc()
+    )
     if endpoint_id is not None:
         statement = statement.where(WebhookDelivery.endpoint_id == endpoint_id)
     if job_id is not None:

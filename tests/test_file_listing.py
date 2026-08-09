@@ -14,8 +14,10 @@ KnownOperationError = importlib.import_module("app.operations.base").KnownOperat
 class FakeSession:
     def __init__(self, found: list[object]) -> None:
         self.found = found
+        self.statement: object = None
 
     def scalars(self, statement: object) -> list[object]:
+        self.statement = statement
         return list(self.found)
 
 
@@ -119,3 +121,26 @@ def test_a_job_status_is_not_a_valid_file_status() -> None:
 
 def test_the_filter_set_tracks_the_model() -> None:
     assert documents.DOCUMENT_STATUSES == {status.value for status in models.DocumentStatus}
+
+
+def test_paging_is_ordered_by_a_unique_tiebreak() -> None:
+    # created_at is transaction time, so a job's outputs are written with byte-identical
+    # timestamps. Ordering on it alone lets an offset repeat or skip a row between pages.
+    session = FakeSession([_document("file_1")])
+
+    documents.list_documents_for_response(session, limit=10, offset=10)
+
+    order_by = str(session.statement).split("ORDER BY")[1]
+    assert "documents.created_at DESC" in order_by
+    assert "documents.id DESC" in order_by
+
+
+def test_job_paging_uses_the_same_tiebreak() -> None:
+    jobs = importlib.import_module("app.services.jobs")
+    session = FakeSession([])
+
+    jobs.list_jobs_for_response(session, limit=10, offset=10)
+
+    order_by = str(session.statement).split("ORDER BY")[1]
+    assert "jobs.created_at DESC" in order_by
+    assert "jobs.id DESC" in order_by

@@ -61,7 +61,14 @@ def list_documents_for_response(
     offset: int = 0,
 ) -> FileListResponse:
     validated_status = validate_document_status_filter(status_filter)
-    statement = select(Document).order_by(Document.created_at.desc()).limit(limit).offset(offset)
+    # created_at is transaction time, so rows written together (a job's outputs, say) share
+    # a timestamp exactly. Without a tiebreak, paging can repeat or skip them.
+    statement = (
+        select(Document)
+        .order_by(Document.created_at.desc(), Document.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     if validated_status is not None:
         statement = statement.where(Document.status == validated_status)
 
