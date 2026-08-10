@@ -220,7 +220,36 @@ Removing an output also records an `output.deleted` event on the job that produc
   `409 FILE_IN_USE` and the blocking job IDs. Finish or cancel those jobs first.
 - A deleted file cannot be an input to a new job (`FILE_NOT_VALIDATED`).
 
-Scheduled retention is not implemented. Deletion is explicit and caller-driven in v0.
+### Retention
+
+Retention is off by default: documents are kept until deleted explicitly. Set a window to
+purge older ones:
+
+```bash
+AGENTPDF_DOCUMENT_RETENTION_DAYS=30
+```
+
+The sweep is caller-scheduled rather than self-scheduling, so it fits cron, a Kubernetes
+CronJob, or a one-off run without adding a scheduler to the stack:
+
+```bash
+make retention
+# or, against any environment:
+python -m worker.retention
+```
+
+It purges through the same path as an explicit delete — bytes gone, row retired, job trail
+intact — and tags the audit event with `"reason": "retention"` so a scheduled purge is
+distinguishable from one a caller asked for. Inputs belonging to a queued, running, or
+validating job are left alone no matter how old they are. Each run prints a summary:
+
+```json
+{"cutoff": "2026-07-09T12:00:00+00:00", "examined": 12, "purged": 11,
+ "skipped_in_use": 1, "purged_file_ids": ["file_..."]}
+```
+
+Running it with retention unset is a no-op, so it is safe to schedule before deciding on a
+window.
 
 Idempotency keys are request-scoped. Reusing the same `Idempotency-Key` with the same
 operation, inputs, and parameters returns the existing job. Reusing the key for a different
@@ -342,7 +371,6 @@ Not in v0:
 
 - User accounts and organizations.
 - Billing.
-- Scheduled retention and automatic expiry.
 - True redaction.
 - Electronic signatures.
 - Natural-language workflow planning.

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     webhook_delivery_timeout_seconds: int = Field(default=10, gt=0)
     webhook_max_attempts: int = Field(default=3, gt=0)
     webhook_allow_private_urls: bool = False
+    document_retention_days: int | None = Field(default=None, gt=0)
     temp_prefix: str = "agentp-"
 
 

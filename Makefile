@@ -1,4 +1,4 @@
-.PHONY: build up down logs ps test smoke db-upgrade container-test demo demo-packet
+.PHONY: build up down logs ps test smoke db-upgrade container-test demo demo-packet retention
 
 build:
 	docker compose build
@@ -33,3 +33,6 @@ demo:
 
 demo-packet:
 	./scripts/demo_packet.sh
+
+retention:
+	docker compose run --rm api python -m worker.retention
