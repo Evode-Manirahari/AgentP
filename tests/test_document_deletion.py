@@ -19,8 +19,11 @@ class FakeSession:
         self.blocking_job_ids = blocking_job_ids or []
         self.added: list[object] = []
         self.commits = 0
+        self.locked: list[str] = []
 
-    def get(self, model: object, item_id: str) -> object | None:
+    def get(self, model: object, item_id: str, **kwargs: object) -> object | None:
+        if kwargs.get("with_for_update"):
+            self.locked.append(item_id)
         return self.document
 
     def scalars(self, statement: object) -> list[str]:
@@ -91,6 +94,15 @@ def test_deleting_purges_the_bytes_and_keeps_the_record() -> None:
     assert document.sha256 == "0" * 64
     assert document.original_filename == "statement.pdf"
     assert session.commits == 1
+
+
+def test_the_document_is_locked_before_the_in_use_check() -> None:
+    session = FakeSession(_document())
+
+    documents.delete_document(session, file_id="file_123", settings=_settings())
+
+    # Without the lock, a job could attach this document between the check and the purge.
+    assert session.locked == ["file_123"]
 
 
 def test_deleting_is_idempotent() -> None:

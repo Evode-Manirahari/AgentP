@@ -14,17 +14,28 @@ NOW = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
 
 
 class FakeSession:
-    """Serves the sweep's two queries in the order it makes them."""
+    """Mimics the sweep's flow: select candidate ids, lock one, ask if it is in use."""
 
     def __init__(self, *, expired: list[object], in_use_ids: list[str] | None = None) -> None:
-        self.responses: list[list[object]] = [expired, list(in_use_ids or [])]
+        self.documents = {document.id: document for document in expired}
+        self.candidate_ids = [document.id for document in expired]
+        self.in_use = set(in_use_ids or [])
+        self.locked: list[str] = []
         self.added: list[object] = []
         self.commits = 0
 
-    def scalars(self, statement: object) -> list[object]:
-        if not self.responses:
-            return []
-        return self.responses.pop(0)
+    def scalars(self, statement: object) -> list[str]:
+        return list(self.candidate_ids)
+
+    def get(self, model: object, item_id: str, **kwargs: object) -> object | None:
+        if kwargs.get("with_for_update"):
+            self.locked.append(item_id)
+        return self.documents.get(item_id)
+
+    def scalar(self, statement: object) -> object | None:
+        # The sweep locks a document immediately before asking whether a job needs it.
+        current = self.locked[-1] if self.locked else None
+        return "jin_1" if current in self.in_use else None
 
     def add(self, item: object) -> None:
         self.added.append(item)
@@ -163,12 +174,10 @@ def test_a_retention_purge_is_labelled_in_the_job_trail() -> None:
 
 def test_an_explicit_delete_is_labelled_differently() -> None:
     document = _document("file_1", age_days=1, source_job_id="job_7")
+    session = FakeSession(expired=[document])
+    # delete_document finds blocking jobs with scalars(), which returns candidate ids here.
+    session.candidate_ids = []
 
-    class SingleDocSession(FakeSession):
-        def get(self, model: object, item_id: str) -> object:
-            return document
-
-    session = SingleDocSession(expired=[], in_use_ids=[])
     documents.delete_document(session, file_id="file_1", settings=_settings(None))
 
     events = [item for item in session.added if isinstance(item, models.AuditEvent)]
@@ -184,6 +193,42 @@ def test_nothing_expired_means_no_second_query() -> None:
     assert sweep.purged == 0
     assert sweep.cutoff == NOW - timedelta(days=30)
     assert session.commits == 0
+
+
+def test_each_candidate_is_locked_before_it_is_purged() -> None:
+    session = FakeSession(
+        expired=[_document("file_1", age_days=40), _document("file_2", age_days=40)]
+    )
+
+    documents.purge_expired_documents(session, settings=_settings(30), now=NOW)
+
+    # Selecting a row is not enough: a job can attach it as an input in between.
+    assert session.locked == ["file_1", "file_2"]
+
+
+def test_a_document_purged_by_a_concurrent_sweep_is_skipped() -> None:
+    already_gone = _document("file_1", age_days=40)
+    already_gone.status = models.DocumentStatus.DELETED.value
+    session = FakeSession(expired=[already_gone, _document("file_2", age_days=40)])
+
+    sweep = documents.purge_expired_documents(session, settings=_settings(30), now=NOW)
+
+    # It matched the candidate query, but the lock revealed another sweep got there first.
+    assert sweep.examined == 1
+    assert sweep.purged_file_ids == ["file_2"]
+    assert RecordingStorage.deleted_keys == ["inputs/file_2/doc.pdf"]
+
+
+def test_the_in_use_check_happens_after_the_lock_not_before() -> None:
+    session = FakeSession(expired=[_document("file_1", age_days=40)], in_use_ids=["file_1"])
+
+    sweep = documents.purge_expired_documents(session, settings=_settings(30), now=NOW)
+
+    # The fake answers the in-use question about whichever row was locked last, so this
+    # only passes if the lock is taken first.
+    assert session.locked == ["file_1"]
+    assert sweep.skipped_in_use == 1
+    assert RecordingStorage.deleted_keys == []
 
 
 def test_the_sweep_summary_is_json_ready() -> None:
