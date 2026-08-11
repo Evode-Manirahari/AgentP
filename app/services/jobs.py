@@ -35,7 +35,7 @@ from app.schemas import (
     JobSummaryResponse,
 )
 from app.services.audit import add_audit_event
-from app.services.documents import is_deleted
+from app.services.documents import is_deleted, lock_document
 from app.services.storage import StorageService
 from app.services.webhooks import safe_queue_terminal_job_webhooks
 from worker.queue import enqueue_job
@@ -286,6 +286,13 @@ def create_job(
         )
         if existing is not None:
             return _resume_existing_job(session, existing, settings=active_settings)
+
+    # Lock every input before validating it, and hold those locks until the job inputs are
+    # committed below. Otherwise a retention sweep or a delete can purge a document between
+    # the status check and the insert, leaving a job pointing at bytes that no longer exist.
+    # Sorted so two concurrent creations sharing inputs cannot deadlock on lock ordering.
+    for locked_file_id in sorted({input_ref.file_id for input_ref in request.inputs}):
+        lock_document(session, locked_file_id)
 
     documents: list[Document] = []
     for input_ref in request.inputs:

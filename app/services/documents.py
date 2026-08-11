@@ -64,13 +64,21 @@ def retention_cutoff(*, settings: Settings, now: datetime | None = None) -> date
     return (now or datetime.now(UTC)) - timedelta(days=settings.document_retention_days)
 
 
-def _document_ids_in_active_jobs(session: Session) -> set[str]:
-    return set(
-        session.scalars(
-            select(JobInput.document_id)
+def lock_document(session: Session, file_id: str) -> Document | None:
+    """Take a row lock so a document cannot be purged and job-referenced concurrently."""
+    return session.get(Document, file_id, with_for_update=True)
+
+
+def is_in_active_job(session: Session, document_id: str) -> bool:
+    return (
+        session.scalar(
+            select(JobInput.id)
             .join(Job, Job.id == JobInput.job_id)
+            .where(JobInput.document_id == document_id)
             .where(Job.status.in_(ACTIVE_JOB_STATUSES))
+            .limit(1)
         )
+        is not None
     )
 
 
@@ -87,32 +95,42 @@ def purge_expired_documents(
     if cutoff is None:
         return RetentionSweep(cutoff=None)
 
-    expired = list(
+    candidate_ids = list(
         session.scalars(
-            select(Document)
+            select(Document.id)
             .where(Document.created_at < cutoff)
             .where(Document.status != DocumentStatus.DELETED.value)
             .order_by(Document.created_at, Document.id)
             .limit(limit)
         )
     )
-    if not expired:
-        return RetentionSweep(cutoff=cutoff)
 
-    in_use = _document_ids_in_active_jobs(session)
     purged_file_ids: list[str] = []
+    examined = 0
     skipped = 0
-    for document in expired:
-        # An unfinished job still needs its input, however old that input is.
-        if document.id in in_use:
-            skipped += 1
+    for file_id in candidate_ids:
+        # One document at a time, locked. Selecting is not enough: a job could attach this
+        # document as an input between the select above and the purge below, and would then
+        # start with bytes that are about to disappear.
+        document = lock_document(session, file_id)
+        if document is None or is_deleted(document):
+            # A concurrent sweep already dealt with it.
+            session.commit()
             continue
+
+        examined += 1
+        # An unfinished job still needs its input, however old that input is.
+        if is_in_active_job(session, file_id):
+            skipped += 1
+            session.commit()
+            continue
+
         purge_document(session, document, settings=active_settings, reason="retention")
-        purged_file_ids.append(document.id)
+        purged_file_ids.append(file_id)
 
     return RetentionSweep(
         cutoff=cutoff,
-        examined=len(expired),
+        examined=examined,
         purged=len(purged_file_ids),
         skipped_in_use=skipped,
         purged_file_ids=purged_file_ids,
@@ -212,7 +230,9 @@ def delete_document(
     settings: Settings | None = None,
 ) -> DocumentDeleteResponse:
     active_settings = settings or get_settings()
-    document = session.get(Document, file_id)
+    # Locked for the same reason the sweep locks: the in-use check below is only meaningful
+    # if no job can attach this document as an input before the purge commits.
+    document = lock_document(session, file_id)
     if document is None:
         raise KnownOperationError(
             "FILE_NOT_FOUND",
