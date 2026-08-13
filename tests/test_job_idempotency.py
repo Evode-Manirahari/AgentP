@@ -27,6 +27,7 @@ class FakeSession:
         self.scalar_results = list(scalar_results or [])
         self.document = document
         self.flush_results = list(flush_results or [])
+        self.locked: list[str] = []
         self.added: list[object] = []
         self.commits = 0
         self.rollbacks = 0
@@ -36,7 +37,9 @@ class FakeSession:
             return None
         return self.scalar_results.pop(0)
 
-    def get(self, model: object, item_id: str) -> object | None:
+    def get(self, model: object, item_id: str, **kwargs: object) -> object | None:
+        if kwargs.get("with_for_update"):
+            self.locked.append(item_id)
         return self.document
 
     def add(self, item: object) -> None:
@@ -289,3 +292,21 @@ def test_replay_of_a_worker_failure_is_not_reenqueued(monkeypatch: pytest.Monkey
 
     assert result is failed
     assert result.status == models.JobStatus.FAILED.value
+
+
+def test_job_inputs_are_locked_in_a_stable_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two creations sharing inputs must take locks in the same order or they can deadlock."""
+    request = schemas.JobCreate(
+        operation="merge",
+        inputs=[
+            schemas.JobInputRef(file_id="file_zebra"),
+            schemas.JobInputRef(file_id="file_alpha"),
+        ],
+        parameters={},
+    )
+    session = FakeSession(document=_document(), scalar_results=[None])
+    monkeypatch.setattr(jobs, "enqueue_job", lambda job_id, *, settings: "rq_1")
+
+    jobs.create_job(session, request=request, idempotency_key=None, settings=_settings())
+
+    assert session.locked == ["file_alpha", "file_zebra"]
