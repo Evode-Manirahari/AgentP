@@ -10,7 +10,7 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.operations.base import KnownOperationError
 from app.schemas import JobCreate, JobCreatedResponse, JobListResponse, JobStatusResponse
-from app.services.auth import require_api_key
+from app.services.auth import AuthContext, require_auth_context
 from app.services.jobs import (
     build_job_response,
     cancel_job,
@@ -21,7 +21,11 @@ from app.services.jobs import (
 )
 from app.services.storage import StorageService
 
-router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/jobs",
+    tags=["jobs"],
+    dependencies=[Depends(require_auth_context)],
+)
 
 
 @router.post("", response_model=JobCreatedResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -29,11 +33,13 @@ def create_job_endpoint(
     request: JobCreate,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> JobCreatedResponse:
     try:
         job = create_job(
             session,
+            workspace_id=context.workspace_id,
             request=request,
             idempotency_key=idempotency_key,
             settings=settings,
@@ -54,6 +60,7 @@ def create_job_endpoint(
 @router.get("", response_model=JobListResponse)
 def list_jobs_endpoint(
     session: Annotated[Session, Depends(get_session)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -61,6 +68,7 @@ def list_jobs_endpoint(
     try:
         return list_jobs_for_response(
             session,
+            workspace_id=context.workspace_id,
             status_filter=status_filter,
             limit=limit,
             offset=offset,
@@ -74,8 +82,9 @@ def get_job_endpoint(
     job_id: str,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> JobStatusResponse:
-    job = load_job_for_response(session, job_id)
+    job = load_job_for_response(session, job_id, workspace_id=context.workspace_id)
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -96,9 +105,15 @@ def cancel_job_endpoint(
     job_id: str,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> JobStatusResponse:
     try:
-        job = cancel_job(session, job_id=job_id, settings=settings)
+        job = cancel_job(
+            session,
+            workspace_id=context.workspace_id,
+            job_id=job_id,
+            settings=settings,
+        )
     except KnownOperationError as exc:
         status_code = status.HTTP_400_BAD_REQUEST
         if exc.code == "JOB_NOT_FOUND":

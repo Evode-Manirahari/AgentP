@@ -33,6 +33,12 @@ class FakeSession:
         return self.documents.get(item_id)
 
     def scalar(self, statement: object) -> object | None:
+        # A workspace-scoped lock cannot use Session.get, so it issues SELECT ... FOR UPDATE.
+        if getattr(statement, "_for_update_arg", None) is not None:
+            document = next(iter(self.documents.values()), None)
+            if document is not None:
+                self.locked.append(document.id)
+            return document
         # The sweep locks a document immediately before asking whether a job needs it.
         current = self.locked[-1] if self.locked else None
         return "jin_1" if current in self.in_use else None
@@ -66,6 +72,7 @@ def _reset_storage(monkeypatch: pytest.MonkeyPatch) -> None:
 def _document(file_id: str, *, age_days: int, source_job_id: str | None = None) -> object:
     return models.Document(
         id=file_id,
+        workspace_id="ws_acme",
         original_filename=f"{file_id}.pdf",
         mime_type="application/pdf",
         size_bytes=1024,
@@ -178,7 +185,12 @@ def test_an_explicit_delete_is_labelled_differently() -> None:
     # delete_document finds blocking jobs with scalars(), which returns candidate ids here.
     session.candidate_ids = []
 
-    documents.delete_document(session, file_id="file_1", settings=_settings(None))
+    documents.delete_document(
+        session,
+        file_id="file_1",
+        workspace_id="ws_acme",
+        settings=_settings(None),
+    )
 
     events = [item for item in session.added if isinstance(item, models.AuditEvent)]
     assert events[0].payload["reason"] == "requested"

@@ -33,6 +33,15 @@ class FakeSession:
         self.rollbacks = 0
 
     def scalar(self, statement: object) -> object | None:
+        if "FROM documents" in str(statement):
+            parameters = statement.compile().params
+            file_id = next(
+                value
+                for name, value in parameters.items()
+                if name.startswith("id_")
+            )
+            self.locked.append(file_id)
+            return self.document
         if not self.scalar_results:
             return None
         return self.scalar_results.pop(0)
@@ -67,6 +76,7 @@ def _settings() -> object:
 def _document(file_id: str = "file_123") -> object:
     return models.Document(
         id=file_id,
+        workspace_id="ws_acme",
         original_filename="source.pdf",
         mime_type="application/pdf",
         size_bytes=128,
@@ -98,6 +108,7 @@ def _existing_job(
 ) -> object:
     return models.Job(
         id="job_existing",
+        workspace_id="ws_acme",
         operation="compress",
         status=status,
         parameters={"preset": "ebook"},
@@ -131,6 +142,7 @@ def test_concurrent_duplicate_key_returns_the_winning_job(
 
     result = jobs.create_job(
         session,
+        workspace_id="ws_acme",
         request=request,
         idempotency_key="demo-key",
         settings=_settings(),
@@ -156,6 +168,7 @@ def test_concurrent_duplicate_key_with_different_request_conflicts() -> None:
     with pytest.raises(KnownOperationError) as exc:
         jobs.create_job(
             session,
+            workspace_id="ws_acme",
             request=request,
             idempotency_key="demo-key",
             settings=_settings(),
@@ -174,6 +187,7 @@ def test_integrity_error_without_idempotency_key_propagates() -> None:
     with pytest.raises(IntegrityError):
         jobs.create_job(
             session,
+            workspace_id="ws_acme",
             request=_request(),
             idempotency_key=None,
             settings=_settings(),
@@ -195,6 +209,7 @@ def test_replay_reenqueues_a_job_that_never_reached_the_queue(
 
     result = jobs.create_job(
         session,
+        workspace_id="ws_acme",
         request=request,
         idempotency_key="demo-key",
         settings=_settings(),
@@ -232,6 +247,7 @@ def test_replay_still_reports_a_queue_that_is_down(monkeypatch: pytest.MonkeyPat
     with pytest.raises(KnownOperationError) as exc:
         jobs.create_job(
             session,
+            workspace_id="ws_acme",
             request=request,
             idempotency_key="demo-key",
             settings=_settings(),
@@ -258,6 +274,7 @@ def test_replay_of_a_queued_job_does_not_enqueue_again(monkeypatch: pytest.Monke
 
     result = jobs.create_job(
         session,
+        workspace_id="ws_acme",
         request=request,
         idempotency_key="demo-key",
         settings=_settings(),
@@ -285,6 +302,7 @@ def test_replay_of_a_worker_failure_is_not_reenqueued(monkeypatch: pytest.Monkey
 
     result = jobs.create_job(
         session,
+        workspace_id="ws_acme",
         request=request,
         idempotency_key="demo-key",
         settings=_settings(),
@@ -307,6 +325,12 @@ def test_job_inputs_are_locked_in_a_stable_order(monkeypatch: pytest.MonkeyPatch
     session = FakeSession(document=_document(), scalar_results=[None])
     monkeypatch.setattr(jobs, "enqueue_job", lambda job_id, *, settings: "rq_1")
 
-    jobs.create_job(session, request=request, idempotency_key=None, settings=_settings())
+    jobs.create_job(
+        session,
+        workspace_id="ws_acme",
+        request=request,
+        idempotency_key=None,
+        settings=_settings(),
+    )
 
     assert session.locked == ["file_alpha", "file_zebra"]

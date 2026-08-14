@@ -176,12 +176,14 @@ def _delivery_response(delivery: WebhookDelivery) -> WebhookDeliveryResponse:
 def create_webhook_endpoint(
     session: Session,
     *,
+    workspace_id: str,
     request: WebhookCreate,
     settings: Settings | None = None,
 ) -> WebhookCreateResponse:
     ensure_public_webhook_target(request.url, settings=settings or get_settings())
     secret = secrets.token_urlsafe(32)
     endpoint = WebhookEndpoint(
+        workspace_id=workspace_id,
         url=request.url,
         secret=secret,
         events=_normalize_events(list(request.events)),
@@ -200,11 +202,13 @@ def create_webhook_endpoint(
 def list_webhook_endpoints(
     session: Session,
     *,
+    workspace_id: str,
     limit: int = 50,
     offset: int = 0,
 ) -> WebhookEndpointListResponse:
     statement = (
         select(WebhookEndpoint)
+        .where(WebhookEndpoint.workspace_id == workspace_id)
         .order_by(WebhookEndpoint.created_at.desc(), WebhookEndpoint.id.desc())
         .limit(limit)
         .offset(offset)
@@ -218,15 +222,33 @@ def list_webhook_endpoints(
     )
 
 
-def get_webhook_endpoint(session: Session, webhook_id: str) -> WebhookEndpointResponse | None:
-    endpoint = session.get(WebhookEndpoint, webhook_id)
+def get_webhook_endpoint(
+    session: Session,
+    webhook_id: str,
+    *,
+    workspace_id: str,
+) -> WebhookEndpointResponse | None:
+    endpoint = session.scalar(
+        select(WebhookEndpoint)
+        .where(WebhookEndpoint.id == webhook_id)
+        .where(WebhookEndpoint.workspace_id == workspace_id)
+    )
     if endpoint is None:
         return None
     return _endpoint_response(endpoint)
 
 
-def disable_webhook_endpoint(session: Session, webhook_id: str) -> WebhookEndpointResponse | None:
-    endpoint = session.get(WebhookEndpoint, webhook_id)
+def disable_webhook_endpoint(
+    session: Session,
+    webhook_id: str,
+    *,
+    workspace_id: str,
+) -> WebhookEndpointResponse | None:
+    endpoint = session.scalar(
+        select(WebhookEndpoint)
+        .where(WebhookEndpoint.id == webhook_id)
+        .where(WebhookEndpoint.workspace_id == workspace_id)
+    )
     if endpoint is None:
         return None
     endpoint.active = False
@@ -238,6 +260,7 @@ def disable_webhook_endpoint(session: Session, webhook_id: str) -> WebhookEndpoi
 def list_webhook_deliveries(
     session: Session,
     *,
+    workspace_id: str,
     endpoint_id: str | None = None,
     job_id: str | None = None,
     status_filter: str | None = None,
@@ -247,6 +270,7 @@ def list_webhook_deliveries(
     statement = select(WebhookDelivery).order_by(
         WebhookDelivery.created_at.desc(), WebhookDelivery.id.desc()
     )
+    statement = statement.where(WebhookDelivery.workspace_id == workspace_id)
     if endpoint_id is not None:
         statement = statement.where(WebhookDelivery.endpoint_id == endpoint_id)
     if job_id is not None:
@@ -291,6 +315,7 @@ def build_job_webhook_payload(*, event_type: str, job: Job) -> dict[str, Any]:
     warnings = (job.validation or {}).get("warnings") or []
     return {
         "event": event_type,
+        "workspace_id": job.workspace_id,
         "job": {
             "job_id": job.id,
             "operation": job.operation,
@@ -307,9 +332,18 @@ def build_job_webhook_payload(*, event_type: str, job: Job) -> dict[str, Any]:
     }
 
 
-def _matching_endpoints(session: Session, event_type: str) -> list[WebhookEndpoint]:
+def _matching_endpoints(
+    session: Session,
+    *,
+    workspace_id: str,
+    event_type: str,
+) -> list[WebhookEndpoint]:
     endpoints = list(
-        session.scalars(select(WebhookEndpoint).where(WebhookEndpoint.active.is_(True)))
+        session.scalars(
+            select(WebhookEndpoint)
+            .where(WebhookEndpoint.workspace_id == workspace_id)
+            .where(WebhookEndpoint.active.is_(True))
+        )
     )
     return [endpoint for endpoint in endpoints if event_type in endpoint.events]
 
@@ -333,8 +367,13 @@ def queue_terminal_job_webhooks(
 
         payload = build_job_webhook_payload(event_type=event_type, job=job)
         delivery_ids: list[str] = []
-        for endpoint in _matching_endpoints(session, event_type):
+        for endpoint in _matching_endpoints(
+            session,
+            workspace_id=job.workspace_id,
+            event_type=event_type,
+        ):
             delivery = WebhookDelivery(
+                workspace_id=job.workspace_id,
                 endpoint_id=endpoint.id,
                 job_id=job.id,
                 event_type=event_type,

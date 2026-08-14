@@ -45,6 +45,7 @@ def _mark_failed(job_id: str, error: KnownOperationError) -> None:
         session.add(job)
         add_audit_event(
             session,
+            workspace_id=job.workspace_id,
             job_id=job.id,
             event_type="job.failed",
             payload=error.to_dict()["error"],
@@ -53,11 +54,15 @@ def _mark_failed(job_id: str, error: KnownOperationError) -> None:
     safe_queue_terminal_job_webhooks(job_id=job_id, event_type="job.failed")
 
 
-def _load_inputs(job_id: str) -> list[JobInput]:
+def _load_inputs(job_id: str, *, workspace_id: str) -> list[JobInput]:
     with SessionLocal() as session:
         return list(
             session.scalars(
-                select(JobInput).where(JobInput.job_id == job_id).order_by(JobInput.position)
+                select(JobInput)
+                .join(Job, Job.id == JobInput.job_id)
+                .where(JobInput.job_id == job_id)
+                .where(Job.workspace_id == workspace_id)
+                .order_by(JobInput.position)
             )
         )
 
@@ -81,8 +86,14 @@ def process_job(job_id: str) -> None:
             job.status = JobStatus.RUNNING.value
             job.started_at = datetime.now(UTC)
             session.add(job)
-            add_audit_event(session, job_id=job.id, event_type="job.running")
+            add_audit_event(
+                session,
+                workspace_id=job.workspace_id,
+                job_id=job.id,
+                event_type="job.running",
+            )
             session.commit()
+            workspace_id = job.workspace_id
 
         with tempfile.TemporaryDirectory(prefix=f"{settings.temp_prefix}{job_id}-") as tmp_dir:
             workspace = Path(tmp_dir)
@@ -90,9 +101,13 @@ def process_job(job_id: str) -> None:
             input_names: list[str] = []
             input_validations: list[dict] = []
 
-            for job_input in _load_inputs(job_id):
+            for job_input in _load_inputs(job_id, workspace_id=workspace_id):
                 with SessionLocal() as session:
-                    document = session.get(Document, job_input.document_id)
+                    document = session.scalar(
+                        select(Document)
+                        .where(Document.id == job_input.document_id)
+                        .where(Document.workspace_id == workspace_id)
+                    )
                     if document is None:
                         raise KnownOperationError(
                             "FILE_NOT_FOUND",
@@ -119,6 +134,7 @@ def process_job(job_id: str) -> None:
                     raise KnownOperationError("JOB_NOT_FOUND", "The job no longer exists.")
                 add_audit_event(
                     session,
+                    workspace_id=job.workspace_id,
                     job_id=job.id,
                     event_type="inputs.validated",
                     payload={"inputs": input_validations},
@@ -142,6 +158,7 @@ def process_job(job_id: str) -> None:
                 session.add(job)
                 add_audit_event(
                     session,
+                    workspace_id=job.workspace_id,
                     job_id=job.id,
                     event_type="operation.completed",
                     payload={"metadata": result.metadata},
@@ -163,11 +180,16 @@ def process_job(job_id: str) -> None:
                 output_file_ids: list[str] = []
                 for position, output in enumerate(result.outputs):
                     sha256 = sha256_path(output.path)
-                    storage_key = storage.output_key(job_id=job.id, filename=output.filename)
+                    storage_key = storage.output_key(
+                        workspace_id=job.workspace_id,
+                        job_id=job.id,
+                        filename=output.filename,
+                    )
                     storage.upload_path(output.path, key=storage_key, content_type=output.mime_type)
                     output_validation = validation["outputs"][position]
                     page_count = output_validation.get("page_count", output.page_count)
                     document = Document(
+                        workspace_id=job.workspace_id,
                         original_filename=output.filename,
                         mime_type=output.mime_type,
                         size_bytes=output.path.stat().st_size,
@@ -191,6 +213,7 @@ def process_job(job_id: str) -> None:
                 session.add(job)
                 add_audit_event(
                     session,
+                    workspace_id=job.workspace_id,
                     job_id=job.id,
                     event_type=event_type,
                     payload={

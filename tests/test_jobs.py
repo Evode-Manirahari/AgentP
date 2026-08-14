@@ -12,6 +12,9 @@ class FakeSession:
     def get(self, model: object, item_id: str) -> object | None:
         return self.job
 
+    def scalar(self, statement: object) -> object | None:
+        return self.job
+
     def add(self, item: object) -> None:
         self.added.append(item)
 
@@ -105,6 +108,7 @@ def test_cancel_job_marks_queued_job_canceled(monkeypatch: pytest.MonkeyPatch) -
 
     job = models.Job(
         id="job_123",
+        workspace_id="ws_acme",
         operation="compress",
         status=models.JobStatus.QUEUED.value,
         parameters={},
@@ -120,6 +124,7 @@ def test_cancel_job_marks_queued_job_canceled(monkeypatch: pytest.MonkeyPatch) -
 
     result = jobs.cancel_job(
         session,
+        workspace_id="ws_acme",
         job_id="job_123",
         settings=config.Settings(redis_url="redis://example.invalid/0"),
     )
@@ -141,6 +146,7 @@ def test_cancel_job_rejects_running_job() -> None:
 
     job = models.Job(
         id="job_123",
+        workspace_id="ws_acme",
         operation="compress",
         status=models.JobStatus.RUNNING.value,
         parameters={},
@@ -149,6 +155,7 @@ def test_cancel_job_rejects_running_job() -> None:
     with pytest.raises(error_module.KnownOperationError) as exc:
         jobs.cancel_job(
             FakeSession(job),
+            workspace_id="ws_acme",
             job_id="job_123",
             settings=config.Settings(redis_url="redis://example.invalid/0"),
         )

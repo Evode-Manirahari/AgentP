@@ -16,6 +16,7 @@ The first product path is intentionally narrow:
 6. Validate the output before marking the job complete.
 7. Return short-lived download URLs, validation details, and audit events.
 8. Deliver signed completion webhooks with durable delivery history.
+9. Isolate every file, job, webhook, and object-storage key by workspace.
 
 MCP tools expose the same job service as the REST API. There is no separate AI chat layer.
 
@@ -59,11 +60,81 @@ System endpoints:
 - `GET /health` reports that the API process is alive.
 - `GET /ready` checks Postgres, Redis, and object storage connectivity.
 
-Local API key:
+Local bootstrap API key:
 
 ```text
 X-API-Key: local-dev-key
 ```
+
+On the first successful database startup, AgentP hashes this configured value into a
+platform-administrator key in the default workspace. The plaintext is never stored. Once
+any key exists in that workspace, changing `AGENTPDF_API_KEY` does not rotate or recreate
+it; use the key lifecycle below. Keep the development default out of deployed environments.
+
+## Workspaces and API Keys
+
+Every API key belongs to one workspace. Its authentication context scopes files, jobs,
+idempotency keys, webhook endpoints, delivery history, audit events, and object-storage
+paths. A caller asking for another workspace's object receives the same not-found response
+as it would for an unknown ID.
+
+Only a platform-administrator key can create a workspace. The response contains the new
+workspace's first ordinary key, and the token is shown once:
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/workspaces \
+  -H "X-API-Key: local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Lending", "initial_key_name": "production"}'
+```
+
+An authenticated caller can inspect its current workspace and manage keys only inside that
+workspace:
+
+```bash
+curl -sS http://localhost:8000/v1/workspaces/current \
+  -H "X-API-Key: $AGENTP_KEY"
+
+curl -sS -X POST http://localhost:8000/v1/api-keys \
+  -H "X-API-Key: $AGENTP_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "automation"}'
+
+curl -sS http://localhost:8000/v1/api-keys \
+  -H "X-API-Key: $AGENTP_KEY"
+```
+
+Rotate before switching clients so there is no credential gap. Rotation atomically creates
+a replacement, returns its token once, and revokes the old key:
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/api-keys/key_.../rotate \
+  -H "X-API-Key: $AGENTP_KEY"
+```
+
+Revoke a key after another active key is confirmed working:
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/api-keys/key_.../revoke \
+  -H "X-API-Key: $AGENTP_KEY"
+```
+
+AgentP refuses to revoke a workspace's last active key. Ordinary workspace keys cannot
+rotate or revoke a platform-administrator key. Key creation, rotation, and revocation are
+serialized per workspace so concurrent requests cannot bypass those safeguards.
+
+For operator recovery with direct database access, use the break-glass CLI:
+
+```bash
+python -m app.provision create-workspace "Acme Lending"
+python -m app.provision create-key ws_... --name automation
+python -m app.provision list-keys ws_...
+python -m app.provision rotate-key ws_... key_...
+python -m app.provision revoke-key ws_... key_...
+```
+
+CLI create and rotate commands also print a token only once. Treat their JSON output as a
+secret and move it directly into a secret manager.
 
 ## REST Demo
 
@@ -251,9 +322,10 @@ validating job are left alone no matter how old they are. Each run prints a summ
 Running it with retention unset is a no-op, so it is safe to schedule before deciding on a
 window.
 
-Idempotency keys are request-scoped. Reusing the same `Idempotency-Key` with the same
+Idempotency keys are workspace-scoped. Reusing the same `Idempotency-Key` with the same
 operation, inputs, and parameters returns the existing job. Reusing the key for a different
-request returns an `IDEMPOTENCY_KEY_CONFLICT` error. Requests that race on the same key
+request in that workspace returns an `IDEMPOTENCY_KEY_CONFLICT` error. Two workspaces can
+use the same key independently. Requests that race on the same key inside one workspace
 collapse onto a single job rather than failing.
 
 A `QUEUE_UNAVAILABLE` error is retryable: the job record exists but never reached the
@@ -338,6 +410,8 @@ The MCP server exposes strongly typed tools:
 - `extract_text(file_id, include_coordinates, idempotency_key)`
 - `get_job(job_id)`
 
+MCP HTTP requests use the same `X-API-Key` header and workspace isolation as REST requests.
+
 Every operation tool returns:
 
 ```json
@@ -355,7 +429,9 @@ Every operation tool returns:
 
 Implemented in v0:
 
-- API key required for REST endpoints.
+- Hashed, revocable API keys required for REST and MCP endpoints.
+- Workspace isolation for database reads, writes, idempotency, webhooks, and storage paths.
+- Platform-administrator capability required to create workspaces.
 - Upload size limit.
 - Page count limit.
 - Immutable input and output storage keys.
@@ -369,7 +445,7 @@ Implemented in v0:
 
 Not in v0:
 
-- User accounts and organizations.
+- User accounts and interactive login.
 - Billing.
 - True redaction.
 - Electronic signatures.

@@ -17,7 +17,7 @@ from app.schemas import (
     WebhookEndpointListResponse,
     WebhookEndpointResponse,
 )
-from app.services.auth import require_api_key
+from app.services.auth import AuthContext, require_auth_context
 from app.services.webhooks import (
     create_webhook_endpoint,
     disable_webhook_endpoint,
@@ -26,7 +26,11 @@ from app.services.webhooks import (
     list_webhook_endpoints,
 )
 
-router = APIRouter(prefix="/webhooks", tags=["webhooks"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/webhooks",
+    tags=["webhooks"],
+    dependencies=[Depends(require_auth_context)],
+)
 
 
 def _webhook_not_found(webhook_id: str) -> HTTPException:
@@ -48,9 +52,15 @@ def create_webhook_endpoint_api(
     request: WebhookCreate,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> WebhookCreateResponse:
     try:
-        return create_webhook_endpoint(session, request=request, settings=settings)
+        return create_webhook_endpoint(
+            session,
+            workspace_id=context.workspace_id,
+            request=request,
+            settings=settings,
+        )
     except KnownOperationError as exc:
         raise operation_http_error(exc) from exc
 
@@ -58,15 +68,22 @@ def create_webhook_endpoint_api(
 @router.get("", response_model=WebhookEndpointListResponse)
 def list_webhook_endpoints_api(
     session: Annotated[Session, Depends(get_session)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> WebhookEndpointListResponse:
-    return list_webhook_endpoints(session, limit=limit, offset=offset)
+    return list_webhook_endpoints(
+        session,
+        workspace_id=context.workspace_id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/deliveries", response_model=WebhookDeliveryListResponse)
 def list_webhook_deliveries_api(
     session: Annotated[Session, Depends(get_session)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
     endpoint_id: str | None = None,
     job_id: str | None = None,
     status_filter: Annotated[WebhookDeliveryState | None, Query(alias="status")] = None,
@@ -75,6 +92,7 @@ def list_webhook_deliveries_api(
 ) -> WebhookDeliveryListResponse:
     return list_webhook_deliveries(
         session,
+        workspace_id=context.workspace_id,
         endpoint_id=endpoint_id,
         job_id=job_id,
         status_filter=status_filter,
@@ -87,8 +105,13 @@ def list_webhook_deliveries_api(
 def get_webhook_endpoint_api(
     webhook_id: str,
     session: Annotated[Session, Depends(get_session)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> WebhookEndpointResponse:
-    endpoint = get_webhook_endpoint(session, webhook_id)
+    endpoint = get_webhook_endpoint(
+        session,
+        webhook_id,
+        workspace_id=context.workspace_id,
+    )
     if endpoint is None:
         raise _webhook_not_found(webhook_id)
     return endpoint
@@ -98,8 +121,13 @@ def get_webhook_endpoint_api(
 def disable_webhook_endpoint_api(
     webhook_id: str,
     session: Annotated[Session, Depends(get_session)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> WebhookEndpointResponse:
-    endpoint = disable_webhook_endpoint(session, webhook_id)
+    endpoint = disable_webhook_endpoint(
+        session,
+        webhook_id,
+        workspace_id=context.workspace_id,
+    )
     if endpoint is None:
         raise _webhook_not_found(webhook_id)
     return endpoint

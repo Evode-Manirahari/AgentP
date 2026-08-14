@@ -58,11 +58,17 @@ class StorageService:
                 raise
             self.client.create_bucket(Bucket=self.settings.s3_bucket)
 
-    def input_key(self, *, document_id: str, filename: str) -> str:
-        return f"inputs/{document_id}/{uuid.uuid4().hex}-{safe_filename(filename)}"
+    def input_key(self, *, workspace_id: str, document_id: str, filename: str) -> str:
+        return (
+            f"workspaces/{workspace_id}/inputs/{document_id}/"
+            f"{uuid.uuid4().hex}-{safe_filename(filename)}"
+        )
 
-    def output_key(self, *, job_id: str, filename: str) -> str:
-        return f"outputs/{job_id}/{uuid.uuid4().hex}-{safe_filename(filename)}"
+    def output_key(self, *, workspace_id: str, job_id: str, filename: str) -> str:
+        return (
+            f"workspaces/{workspace_id}/outputs/{job_id}/"
+            f"{uuid.uuid4().hex}-{safe_filename(filename)}"
+        )
 
     def upload_fileobj(self, fileobj: BinaryIO, *, key: str, content_type: str) -> None:
         self.ensure_bucket()

@@ -50,10 +50,51 @@ class WebhookDeliveryStatus(StrEnum):
     FAILED = "failed"
 
 
+DEFAULT_WORKSPACE_ID = "ws_default"
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("ws"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    api_keys: Mapped[list[ApiKey]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_api_keys_token_hash"),
+        Index("ix_api_keys_workspace_revoked", "workspace_id", "revoked_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("key"))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Only the hash is stored. The token itself is shown once, at creation.
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_platform_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    workspace: Mapped[Workspace] = relationship(back_populates="api_keys")
+
+
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (Index("ix_documents_workspace_created", "workspace_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("file"))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -73,15 +114,21 @@ class Document(Base):
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_jobs_idempotency_key"),
+        UniqueConstraint(
+            "workspace_id",
+            "idempotency_key",
+            name="uq_jobs_workspace_idempotency_key",
+        ),
         Index("ix_jobs_status_created", "status", "created_at"),
+        Index("ix_jobs_workspace_status_created", "workspace_id", "status", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("job"))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     operation: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=JobStatus.QUEUED.value)
     parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
     idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     queue_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     validation: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
@@ -132,9 +179,13 @@ class JobOutput(Base):
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
-    __table_args__ = (Index("ix_audit_events_job_created", "job_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_audit_events_job_created", "job_id", "created_at"),
+        Index("ix_audit_events_workspace_created", "workspace_id", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("evt"))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -147,9 +198,13 @@ class AuditEvent(Base):
 
 class WebhookEndpoint(Base):
     __tablename__ = "webhook_endpoints"
-    __table_args__ = (Index("ix_webhook_endpoints_active", "active"),)
+    __table_args__ = (
+        Index("ix_webhook_endpoints_active", "active"),
+        Index("ix_webhook_endpoints_workspace_active", "workspace_id", "active"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("wh"))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     secret: Mapped[str] = mapped_column(String(128), nullable=False)
     events: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
@@ -167,9 +222,11 @@ class WebhookDelivery(Base):
         Index("ix_webhook_deliveries_endpoint_created", "endpoint_id", "created_at"),
         Index("ix_webhook_deliveries_job_created", "job_id", "created_at"),
         Index("ix_webhook_deliveries_status_created", "status", "created_at"),
+        Index("ix_webhook_deliveries_workspace_created", "workspace_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("whd"))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     endpoint_id: Mapped[str] = mapped_column(ForeignKey("webhook_endpoints.id"), nullable=False)
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
