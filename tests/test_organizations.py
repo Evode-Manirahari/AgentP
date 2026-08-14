@@ -1,3 +1,4 @@
+import argparse
 import importlib
 from datetime import UTC, datetime
 
@@ -6,11 +7,25 @@ import pytest
 for _module_name in ["pydantic_settings", "sqlalchemy"]:
     pytest.importorskip(_module_name)
 
+from pydantic import ValidationError  # noqa: E402
+
 models = importlib.import_module("app.models")
 schemas = importlib.import_module("app.schemas")
 workspaces = importlib.import_module("app.services.workspaces")
 provision = importlib.import_module("app.provision")
 KnownOperationError = importlib.import_module("app.operations.base").KnownOperationError
+
+
+class _StopBeforePersisting(Exception):
+    """Raised by a stub to prove what the CLI passed, without touching a database."""
+
+
+class _NullSession:
+    def __enter__(self) -> "_NullSession":
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
 
 
 class FakeSession:
@@ -201,3 +216,28 @@ def test_the_cli_exposes_workspace_and_key_lifecycle_commands() -> None:
 def test_the_cli_requires_a_command() -> None:
     with pytest.raises(SystemExit):
         provision.build_parser().parse_args([])
+
+
+@pytest.mark.parametrize("name", ["   ", ""])
+def test_the_cli_rejects_a_blank_key_name(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A name arriving from the CLI gets the same normalization as one arriving over HTTP."""
+    monkeypatch.setattr(provision, "SessionLocal", lambda: _NullSession())
+
+    with pytest.raises(ValidationError):
+        provision._create_key(argparse.Namespace(workspace_id="ws_acme", name=name))
+
+
+def test_the_cli_trims_a_padded_key_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_create(session: object, *, workspace_id: str, name: str) -> object:
+        captured["name"] = name
+        raise _StopBeforePersisting
+
+    monkeypatch.setattr(provision, "SessionLocal", lambda: _NullSession())
+    monkeypatch.setattr(provision, "create_workspace_api_key", fake_create)
+
+    with pytest.raises(_StopBeforePersisting):
+        provision._create_key(argparse.Namespace(workspace_id="ws_acme", name="  automation  "))
+
+    assert captured["name"] == "automation"

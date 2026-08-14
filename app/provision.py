@@ -19,7 +19,7 @@ import sys
 
 from app.db import SessionLocal
 from app.operations.base import KnownOperationError
-from app.schemas import WorkspaceCreate
+from app.schemas import ApiKeyCreate, WorkspaceCreate
 from app.services.workspaces import (
     create_workspace,
     create_workspace_api_key,
@@ -43,7 +43,9 @@ def _create_key(args: argparse.Namespace) -> dict:
         response = create_workspace_api_key(
             session,
             workspace_id=args.workspace_id,
-            name=args.name,
+            # Same normalization the HTTP endpoint applies, so a blank or padded name
+            # cannot reach the database just because it arrived from the CLI.
+            name=ApiKeyCreate(name=args.name).name,
         )
     return response.model_dump(mode="json")
 

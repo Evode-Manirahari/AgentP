@@ -10,6 +10,7 @@ from typing import Annotated, Any
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -126,28 +127,53 @@ def get_current_auth_context() -> AuthContext | None:
 
 
 def ensure_bootstrap_identity(settings: Settings | None = None) -> None:
-    active_settings = settings or get_settings()
-    with SessionLocal() as session:
-        workspace = session.get(Workspace, DEFAULT_WORKSPACE_ID)
-        if workspace is None:
-            workspace = Workspace(id=DEFAULT_WORKSPACE_ID, name="Default Workspace")
-            session.add(workspace)
-            session.flush()
+    """Provision the default workspace and its first administrator key, once.
 
-        existing_key = session.scalar(
-            select(ApiKey.id).where(ApiKey.workspace_id == DEFAULT_WORKSPACE_ID).limit(1)
-        )
-        if existing_key is None:
-            session.add(
-                ApiKey(
-                    workspace_id=DEFAULT_WORKSPACE_ID,
-                    name="Bootstrap administrator",
-                    token_hash=hash_api_key(active_settings.api_key),
-                    prefix=api_key_prefix(active_settings.api_key),
-                    is_platform_admin=True,
-                )
+    Deliberately keyed on "does this workspace have any key at all" rather than on the
+    configured token. Re-reading the environment on every start would let anyone who can
+    set ``AGENTPDF_API_KEY`` mint themselves platform admin, and would resurrect keys an
+    operator had revoked. Rotation goes through the key lifecycle instead.
+    """
+    active_settings = settings or get_settings()
+    try:
+        with SessionLocal() as session:
+            # Migration 0005 creates this row before bootstrap runs. Locking it serializes
+            # concurrent API replicas even if their environments disagree about the seed key.
+            workspace = session.scalar(
+                select(Workspace)
+                .where(Workspace.id == DEFAULT_WORKSPACE_ID)
+                .with_for_update()
             )
-        session.commit()
+            if workspace is None:
+                workspace = Workspace(id=DEFAULT_WORKSPACE_ID, name="Default Workspace")
+                session.add(workspace)
+                session.flush()
+
+            existing_key = session.scalar(
+                select(ApiKey.id).where(ApiKey.workspace_id == DEFAULT_WORKSPACE_ID).limit(1)
+            )
+            if existing_key is None:
+                session.add(
+                    ApiKey(
+                        workspace_id=DEFAULT_WORKSPACE_ID,
+                        name="Bootstrap administrator",
+                        token_hash=hash_api_key(active_settings.api_key),
+                        prefix=api_key_prefix(active_settings.api_key),
+                        is_platform_admin=True,
+                    )
+                )
+            session.commit()
+    except IntegrityError as exc:
+        # A metadata-only install can use create_all without migration 0005's seed row, so
+        # two API processes may still race while creating it. Ignore the conflict only after
+        # a fresh transaction proves the winner also created a key. Other integrity failures
+        # are real startup errors and must stay visible.
+        with SessionLocal() as session:
+            existing_key = session.scalar(
+                select(ApiKey.id).where(ApiKey.workspace_id == DEFAULT_WORKSPACE_ID).limit(1)
+            )
+        if existing_key is None:
+            raise exc
 
 
 class MCPAuthMiddleware:
