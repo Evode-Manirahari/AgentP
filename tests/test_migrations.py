@@ -10,8 +10,10 @@ db = importlib.import_module("app.db")
 migration_0001 = importlib.import_module("migrations.versions.0001_initial_schema")
 migration_0002 = importlib.import_module("migrations.versions.0002_job_queue_id")
 migration_0003 = importlib.import_module("migrations.versions.0003_webhooks")
+migration_0005 = importlib.import_module("migrations.versions.0005_workspaces")
 
 INITIAL_TABLES = {"audit_events", "documents", "job_inputs", "job_outputs", "jobs"}
+WEBHOOK_TABLES = {"webhook_endpoints", "webhook_deliveries"}
 
 
 def test_initial_migration_creates_model_tables() -> None:
@@ -85,6 +87,55 @@ def test_webhook_migration_creates_tables_and_indexes() -> None:
     ) in created_indexes
 
 
+def test_workspace_migration_creates_identity_tables_and_scopes_owned_tables() -> None:
+    created_tables: list[str] = []
+    added_columns: list[tuple[str, str]] = []
+    original_create_table = migration_0005.op.create_table
+    original_add_column = migration_0005.op.add_column
+    original_execute = migration_0005.op.execute
+    original_alter_column = migration_0005.op.alter_column
+    original_create_foreign_key = migration_0005.op.create_foreign_key
+    original_drop_constraint = migration_0005.op.drop_constraint
+    original_drop_index = migration_0005.op.drop_index
+    original_create_unique_constraint = migration_0005.op.create_unique_constraint
+    original_create_index = migration_0005.op.create_index
+
+    migration_0005.op.create_table = (
+        lambda name, *args, **kwargs: created_tables.append(name)
+    )
+    migration_0005.op.add_column = (
+        lambda table_name, column: added_columns.append((table_name, column.name))
+    )
+    migration_0005.op.execute = lambda *args, **kwargs: None
+    migration_0005.op.alter_column = lambda *args, **kwargs: None
+    migration_0005.op.create_foreign_key = lambda *args, **kwargs: None
+    migration_0005.op.drop_constraint = lambda *args, **kwargs: None
+    migration_0005.op.drop_index = lambda *args, **kwargs: None
+    migration_0005.op.create_unique_constraint = lambda *args, **kwargs: None
+    migration_0005.op.create_index = lambda *args, **kwargs: None
+    try:
+        migration_0005.upgrade()
+    finally:
+        migration_0005.op.create_table = original_create_table
+        migration_0005.op.add_column = original_add_column
+        migration_0005.op.execute = original_execute
+        migration_0005.op.alter_column = original_alter_column
+        migration_0005.op.create_foreign_key = original_create_foreign_key
+        migration_0005.op.drop_constraint = original_drop_constraint
+        migration_0005.op.drop_index = original_drop_index
+        migration_0005.op.create_unique_constraint = original_create_unique_constraint
+        migration_0005.op.create_index = original_create_index
+
+    assert created_tables == ["workspaces", "api_keys"]
+    assert set(added_columns) == {
+        ("jobs", "workspace_id"),
+        ("documents", "workspace_id"),
+        ("audit_events", "workspace_id"),
+        ("webhook_endpoints", "workspace_id"),
+        ("webhook_deliveries", "workspace_id"),
+    }
+
+
 def _model_tables() -> set[str]:
     return set(db.Base.metadata.tables)
 
@@ -134,7 +185,9 @@ def test_legacy_schema_patch_stamps_current_unversioned_schema() -> None:
 def test_legacy_schema_patch_stamps_legacy_tables_before_new_migrations() -> None:
     table_names = INITIAL_TABLES
     columns_by_table = {
-        table_name: columns
+        table_name: columns - db.POST_REVISION_COLUMNS["0002_job_queue_id"].get(
+            table_name, set()
+        )
         for table_name, columns in _model_columns_by_table().items()
         if table_name in INITIAL_TABLES
     }
@@ -149,6 +202,55 @@ def test_legacy_schema_patch_stamps_legacy_tables_before_new_migrations() -> Non
         missing_indexes=set(),
         stamp_revision="0002_job_queue_id",
     )
+
+
+@pytest.mark.parametrize(
+    ("has_deleted_at", "expected_revision"),
+    [
+        (False, "0003_webhooks"),
+        (True, "0004_document_deletion"),
+    ],
+)
+def test_legacy_schema_patch_detects_previous_unversioned_releases(
+    has_deleted_at: bool,
+    expected_revision: str,
+) -> None:
+    table_names = INITIAL_TABLES | WEBHOOK_TABLES
+    columns_by_table = {
+        table_name: columns
+        - db.POST_REVISION_COLUMNS[expected_revision].get(table_name, set())
+        for table_name, columns in _model_columns_by_table().items()
+        if table_name in table_names
+    }
+    if not has_deleted_at:
+        columns_by_table["documents"].discard("deleted_at")
+
+    patch = db._legacy_schema_patch(
+        table_names=table_names,
+        columns_by_table=columns_by_table,
+        indexes_by_table={"jobs": {"ix_jobs_queue_job_id"}},
+    )
+
+    assert patch == db.LegacySchemaPatch(
+        missing_columns={},
+        missing_indexes=set(),
+        stamp_revision=expected_revision,
+    )
+
+
+def test_legacy_schema_patch_rejects_an_out_of_order_deletion_column() -> None:
+    columns_by_table = {
+        table_name: columns - {"workspace_id"}
+        for table_name, columns in _model_columns_by_table().items()
+        if table_name in INITIAL_TABLES
+    }
+
+    with pytest.raises(RuntimeError, match="webhook tables are missing"):
+        db._legacy_schema_patch(
+            table_names=INITIAL_TABLES,
+            columns_by_table=columns_by_table,
+            indexes_by_table={"jobs": {"ix_jobs_queue_job_id"}},
+        )
 
 
 def test_legacy_schema_patch_ignores_versioned_schema() -> None:

@@ -14,9 +14,11 @@ from app.api.files import router as files_router
 from app.api.jobs import router as jobs_router
 from app.api.operations import router as operations_router
 from app.api.webhooks import router as webhooks_router
+from app.api.workspaces import api_key_router, workspace_router
 from app.config import Settings, get_settings
 from app.db import get_session, init_db
 from app.mcp_server import mcp, mcp_app
+from app.services.auth import MCPAuthMiddleware
 from app.services.storage import StorageService
 
 
@@ -90,4 +92,6 @@ app.include_router(files_router, prefix="/v1")
 app.include_router(jobs_router, prefix="/v1")
 app.include_router(operations_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/v1")
-app.mount("/mcp", mcp_app)
+app.include_router(workspace_router, prefix="/v1")
+app.include_router(api_key_router, prefix="/v1")
+app.mount("/mcp", MCPAuthMiddleware(mcp_app))

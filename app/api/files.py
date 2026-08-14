@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -21,12 +22,16 @@ from app.schemas import (
     FileListResponse,
     FileUploadResponse,
 )
-from app.services.auth import require_api_key
+from app.services.auth import AuthContext, require_auth_context
 from app.services.documents import delete_document, is_deleted, list_documents_for_response
 from app.services.storage import StorageService
 from app.services.validation import validate_input_pdf
 
-router = APIRouter(prefix="/files", tags=["files"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/files",
+    tags=["files"],
+    dependencies=[Depends(require_auth_context)],
+)
 
 
 def _file_not_found(file_id: str) -> HTTPException:
@@ -43,15 +48,24 @@ def _file_not_found(file_id: str) -> HTTPException:
     )
 
 
-def _get_document_or_404(session: Session, file_id: str) -> Document:
-    document = session.get(Document, file_id)
+def _get_document_or_404(session: Session, file_id: str, *, workspace_id: str) -> Document:
+    document = session.scalar(
+        select(Document)
+        .where(Document.id == file_id)
+        .where(Document.workspace_id == workspace_id)
+    )
     if document is None:
         raise _file_not_found(file_id)
     return document
 
 
-def _get_readable_document(session: Session, file_id: str) -> Document:
-    document = _get_document_or_404(session, file_id)
+def _get_readable_document(
+    session: Session,
+    file_id: str,
+    *,
+    workspace_id: str,
+) -> Document:
+    document = _get_document_or_404(session, file_id, workspace_id=workspace_id)
     if is_deleted(document):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -77,6 +91,7 @@ async def upload_file(
     file: Annotated[UploadFile, File(...)],
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> FileUploadResponse:
     storage = StorageService(settings)
     filename = file.filename or "document.pdf"
@@ -116,6 +131,7 @@ async def upload_file(
         validation = validate_input_pdf(tmp_path, settings=settings)
         sha256 = sha256_path(tmp_path)
         document = Document(
+            workspace_id=context.workspace_id,
             original_filename=filename,
             mime_type=validation["mime_type"],
             size_bytes=total_bytes,
@@ -126,7 +142,11 @@ async def upload_file(
         )
         session.add(document)
         session.flush()
-        storage_key = storage.input_key(document_id=document.id, filename=filename)
+        storage_key = storage.input_key(
+            workspace_id=context.workspace_id,
+            document_id=document.id,
+            filename=filename,
+        )
         storage.upload_path(tmp_path, key=storage_key, content_type=validation["mime_type"])
         document.storage_key = storage_key
         session.add(document)
@@ -148,6 +168,7 @@ async def upload_file(
 @router.get("", response_model=FileListResponse)
 def list_files(
     session: Annotated[Session, Depends(get_session)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -155,6 +176,7 @@ def list_files(
     try:
         return list_documents_for_response(
             session,
+            workspace_id=context.workspace_id,
             status_filter=status_filter,
             limit=limit,
             offset=offset,
@@ -168,9 +190,15 @@ def delete_file(
     file_id: str,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> DocumentDeleteResponse:
     try:
-        return delete_document(session, file_id=file_id, settings=settings)
+        return delete_document(
+            session,
+            file_id=file_id,
+            workspace_id=context.workspace_id,
+            settings=settings,
+        )
     except KnownOperationError as exc:
         status_code = status.HTTP_400_BAD_REQUEST
         if exc.code == "FILE_NOT_FOUND":
@@ -185,8 +213,13 @@ def download_file(
     file_id: str,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> DownloadResponse:
-    document = _get_readable_document(session, file_id)
+    document = _get_readable_document(
+        session,
+        file_id,
+        workspace_id=context.workspace_id,
+    )
     storage = StorageService(settings)
     return DownloadResponse(
         file_id=document.id,
@@ -203,8 +236,13 @@ def download_file_content(
     file_id: str,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[AuthContext, Depends(require_auth_context)],
 ) -> FileResponse:
-    document = _get_readable_document(session, file_id)
+    document = _get_readable_document(
+        session,
+        file_id,
+        workspace_id=context.workspace_id,
+    )
     suffix = Path(document.original_filename).suffix or ".pdf"
 
     with tempfile.NamedTemporaryFile(

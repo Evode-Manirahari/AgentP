@@ -108,9 +108,10 @@ def test_registration_rejects_an_internal_target(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(webhooks, "_resolve_addresses", _resolves_to("169.254.169.254"))
 
     with pytest.raises(KnownOperationError) as exc:
-        webhooks.create_webhook_endpoint(
-            session=None,
-            request=schemas.WebhookCreate(url="http://169.254.169.254/latest/meta-data/"),
+            webhooks.create_webhook_endpoint(
+                session=None,
+                workspace_id="ws_acme",
+                request=schemas.WebhookCreate(url="http://169.254.169.254/latest/meta-data/"),
             settings=_settings(),
         )
 

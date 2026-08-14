@@ -21,14 +21,36 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expi
 ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
 LEGACY_SCHEMA_REVISION = "0002_job_queue_id"
 LEGACY_MODEL_TABLES = {"audit_events", "documents", "job_inputs", "job_outputs", "jobs"}
+LEGACY_WEBHOOK_TABLES = {"webhook_endpoints", "webhook_deliveries"}
+WORKSPACE_TABLES = {"workspaces", "api_keys"}
 ADOPTABLE_LEGACY_COLUMNS = {
     "jobs": {"idempotency_fingerprint", "queue_job_id"},
     "documents": {"deleted_at"},
 }
-# Columns introduced by migrations newer than LEGACY_SCHEMA_REVISION. A database stamped at
-# that revision has them applied by the upgrade that follows adoption, so patching them in
-# by hand would make the migration fail on an already-existing column.
-POST_LEGACY_REVISION_COLUMNS = {"documents": {"deleted_at"}}
+# Columns introduced after each adoptable unversioned schema revision. Alembic will add these
+# after we stamp the matching revision, so treating them as missing legacy columns would either
+# patch them twice or stamp the database too far ahead.
+POST_REVISION_COLUMNS = {
+    "0002_job_queue_id": {
+        "audit_events": {"workspace_id"},
+        "documents": {"deleted_at", "workspace_id"},
+        "jobs": {"workspace_id"},
+    },
+    "0003_webhooks": {
+        "audit_events": {"workspace_id"},
+        "documents": {"deleted_at", "workspace_id"},
+        "jobs": {"workspace_id"},
+        "webhook_endpoints": {"workspace_id"},
+        "webhook_deliveries": {"workspace_id"},
+    },
+    "0004_document_deletion": {
+        "audit_events": {"workspace_id"},
+        "documents": {"workspace_id"},
+        "jobs": {"workspace_id"},
+        "webhook_endpoints": {"workspace_id"},
+        "webhook_deliveries": {"workspace_id"},
+    },
+}
 LEGACY_COLUMN_DDL = {
     ("jobs", "idempotency_fingerprint"): (
         "ALTER TABLE jobs ADD COLUMN idempotency_fingerprint VARCHAR(64)"
@@ -89,17 +111,53 @@ def _legacy_schema_patch(
             f"{missing}."
         )
 
-    model_columns = _model_columns_by_table()
     adopts_whole_model = model_tables <= table_names
-    tables_to_check = model_tables if adopts_whole_model else LEGACY_MODEL_TABLES
+    if adopts_whole_model:
+        stamp_revision = "head"
+        tables_to_check = model_tables
+        post_revision_columns: dict[str, set[str]] = {}
+    else:
+        incomplete_workspace_tables = WORKSPACE_TABLES & table_names
+        if incomplete_workspace_tables:
+            present = ", ".join(sorted(incomplete_workspace_tables))
+            raise RuntimeError(
+                "Cannot adopt existing unversioned database schema; workspace migration is "
+                f"incomplete (found: {present})."
+            )
+
+        present_webhook_tables = LEGACY_WEBHOOK_TABLES & table_names
+        if present_webhook_tables and present_webhook_tables != LEGACY_WEBHOOK_TABLES:
+            present = ", ".join(sorted(present_webhook_tables))
+            raise RuntimeError(
+                "Cannot adopt existing unversioned database schema; webhook migration is "
+                f"incomplete (found: {present})."
+            )
+
+        if present_webhook_tables == LEGACY_WEBHOOK_TABLES:
+            tables_to_check = LEGACY_MODEL_TABLES | LEGACY_WEBHOOK_TABLES
+            if "deleted_at" in columns_by_table.get("documents", set()):
+                stamp_revision = "0004_document_deletion"
+            else:
+                stamp_revision = "0003_webhooks"
+        else:
+            if "deleted_at" in columns_by_table.get("documents", set()):
+                raise RuntimeError(
+                    "Cannot adopt existing unversioned database schema; documents.deleted_at "
+                    "exists but the earlier webhook tables are missing."
+                )
+            stamp_revision = LEGACY_SCHEMA_REVISION
+            tables_to_check = LEGACY_MODEL_TABLES
+        post_revision_columns = POST_REVISION_COLUMNS[stamp_revision]
+
+    model_columns = _model_columns_by_table()
     missing_columns = {
         table_name: model_columns[table_name] - columns_by_table.get(table_name, set())
         for table_name in tables_to_check
     }
     if not adopts_whole_model:
-        # Stamping at LEGACY_SCHEMA_REVISION, so later migrations still have to run.
+        # Later migrations still have to run after the detected structural revision.
         missing_columns = {
-            table_name: columns - POST_LEGACY_REVISION_COLUMNS.get(table_name, set())
+            table_name: columns - post_revision_columns.get(table_name, set())
             for table_name, columns in missing_columns.items()
         }
     missing_columns = {table: columns for table, columns in missing_columns.items() if columns}
@@ -126,7 +184,6 @@ def _legacy_schema_patch(
         if "ix_jobs_queue_job_id" not in indexes_by_table.get("jobs", set()):
             missing_indexes.add("ix_jobs_queue_job_id")
 
-    stamp_revision = "head" if adopts_whole_model else LEGACY_SCHEMA_REVISION
     return LegacySchemaPatch(
         missing_columns=missing_columns,
         missing_indexes=missing_indexes,
@@ -201,6 +258,9 @@ def init_db(*, attempts: int = 30, delay_seconds: float = 1.0) -> None:
     for attempt in range(1, attempts + 1):
         try:
             create_schema()
+            from app.services.auth import ensure_bootstrap_identity
+
+            ensure_bootstrap_identity(get_settings())
             return
         except OperationalError:
             if attempt == attempts:

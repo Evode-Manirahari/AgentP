@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.operations.base import KnownOperationError
 from app.schemas import JobCreate, JobInputRef
+from app.services.auth import AuthContext, get_current_auth_context
 from app.services.documents import list_documents_for_response
 from app.services.jobs import (
     build_job_response,
@@ -21,6 +22,17 @@ from app.services.operations_catalog import list_operation_specs
 from app.services.storage import StorageService
 
 mcp = MCPServer("AgentP Document Execution")
+
+
+def _mcp_auth_error() -> dict[str, Any]:
+    return KnownOperationError(
+        "UNAUTHORIZED",
+        "A valid, active X-API-Key header is required.",
+    ).to_dict()
+
+
+def _mcp_auth_context() -> AuthContext | None:
+    return get_current_auth_context()
 
 
 def _queued_envelope(job_id: str, status: str) -> dict[str, Any]:
@@ -41,6 +53,9 @@ def _submit_job(
     parameters: dict[str, Any],
     idempotency_key: str | None,
 ) -> dict[str, Any]:
+    context = _mcp_auth_context()
+    if context is None:
+        return _mcp_auth_error()
     try:
         request = JobCreate(
             operation=operation,  # type: ignore[arg-type]
@@ -50,6 +65,7 @@ def _submit_job(
         with SessionLocal() as session:
             job = create_job(
                 session,
+                workspace_id=context.workspace_id,
                 request=request,
                 idempotency_key=idempotency_key,
                 settings=get_settings(),
@@ -63,6 +79,8 @@ def _submit_job(
 @mcp.tool()
 def list_operations() -> dict[str, Any]:
     """List supported PDF operations, input counts, and parameter schemas."""
+    if _mcp_auth_context() is None:
+        return _mcp_auth_error()
     return {"operations": list_operation_specs()}
 
 
@@ -73,6 +91,9 @@ def list_jobs(
     offset: int = 0,
 ) -> dict[str, Any]:
     """List recent jobs with compact status summaries."""
+    context = _mcp_auth_context()
+    if context is None:
+        return _mcp_auth_error()
     if limit < 1 or limit > 100:
         return KnownOperationError(
             "INVALID_LIMIT",
@@ -90,6 +111,7 @@ def list_jobs(
         with SessionLocal() as session:
             response = list_jobs_for_response(
                 session,
+                workspace_id=context.workspace_id,
                 status_filter=status,
                 limit=limit,
                 offset=offset,
@@ -106,6 +128,9 @@ def list_files(
     offset: int = 0,
 ) -> dict[str, Any]:
     """List uploaded and produced files, newest first, with their status and checksums."""
+    context = _mcp_auth_context()
+    if context is None:
+        return _mcp_auth_error()
     if limit < 1 or limit > 100:
         return KnownOperationError(
             "INVALID_LIMIT",
@@ -123,6 +148,7 @@ def list_files(
         with SessionLocal() as session:
             response = list_documents_for_response(
                 session,
+                workspace_id=context.workspace_id,
                 status_filter=status,
                 limit=limit,
                 offset=offset,
@@ -135,9 +161,17 @@ def list_files(
 @mcp.tool(name="cancel_job")
 def cancel_job_tool(job_id: str) -> dict[str, Any]:
     """Cancel a queued job before the worker starts processing it."""
+    context = _mcp_auth_context()
+    if context is None:
+        return _mcp_auth_error()
     try:
         with SessionLocal() as session:
-            job = cancel_job(session, job_id=job_id, settings=get_settings())
+            job = cancel_job(
+                session,
+                workspace_id=context.workspace_id,
+                job_id=job_id,
+                settings=get_settings(),
+            )
             response = build_job_response(job=job, storage=StorageService(get_settings()))
             return response.model_dump(mode="json")
     except KnownOperationError as exc:
@@ -246,8 +280,15 @@ def extract_text(
 @mcp.tool()
 def get_job(job_id: str) -> dict[str, Any]:
     """Fetch job status, output download URLs, validation, and audit events."""
+    context = _mcp_auth_context()
+    if context is None:
+        return _mcp_auth_error()
     with SessionLocal() as session:
-        job = load_job_for_response(session, job_id)
+        job = load_job_for_response(
+            session,
+            job_id,
+            workspace_id=context.workspace_id,
+        )
         if job is None:
             return KnownOperationError(
                 "JOB_NOT_FOUND",

@@ -26,6 +26,12 @@ class FakeSession:
             self.locked.append(item_id)
         return self.document
 
+    def scalar(self, statement: object) -> object | None:
+        # A workspace-scoped lock cannot use Session.get, so it issues SELECT ... FOR UPDATE.
+        if getattr(statement, "_for_update_arg", None) is not None and self.document is not None:
+            self.locked.append(self.document.id)
+        return self.document
+
     def scalars(self, statement: object) -> list[str]:
         return list(self.blocking_job_ids)
 
@@ -63,6 +69,7 @@ def _document(
 ) -> object:
     return models.Document(
         id="file_123",
+        workspace_id="ws_acme",
         original_filename="statement.pdf",
         mime_type="application/pdf",
         size_bytes=2048,
@@ -84,7 +91,12 @@ def test_deleting_purges_the_bytes_and_keeps_the_record() -> None:
     document = _document()
     session = FakeSession(document)
 
-    response = documents.delete_document(session, file_id="file_123", settings=_settings())
+    response = documents.delete_document(
+        session,
+        file_id="file_123",
+        workspace_id="ws_acme",
+        settings=_settings(),
+    )
 
     assert RecordingStorage.deleted_keys == ["inputs/file_123/abc-statement.pdf"]
     assert response.status == "deleted"
@@ -99,7 +111,12 @@ def test_deleting_purges_the_bytes_and_keeps_the_record() -> None:
 def test_the_document_is_locked_before_the_in_use_check() -> None:
     session = FakeSession(_document())
 
-    documents.delete_document(session, file_id="file_123", settings=_settings())
+    documents.delete_document(
+        session,
+        file_id="file_123",
+        workspace_id="ws_acme",
+        settings=_settings(),
+    )
 
     # Without the lock, a job could attach this document between the check and the purge.
     assert session.locked == ["file_123"]
@@ -110,7 +127,12 @@ def test_deleting_is_idempotent() -> None:
     document = _document(status="deleted", deleted_at=already)
     session = FakeSession(document)
 
-    response = documents.delete_document(session, file_id="file_123", settings=_settings())
+    response = documents.delete_document(
+        session,
+        file_id="file_123",
+        workspace_id="ws_acme",
+        settings=_settings(),
+    )
 
     assert response.status == "deleted"
     assert response.deleted_at == already
@@ -120,7 +142,12 @@ def test_deleting_is_idempotent() -> None:
 
 def test_deleting_an_unknown_file_is_a_not_found() -> None:
     with pytest.raises(KnownOperationError) as exc:
-        documents.delete_document(FakeSession(None), file_id="file_missing", settings=_settings())
+        documents.delete_document(
+            FakeSession(None),
+            file_id="file_missing",
+            workspace_id="ws_acme",
+            settings=_settings(),
+        )
 
     assert exc.value.code == "FILE_NOT_FOUND"
 
@@ -129,7 +156,12 @@ def test_a_file_an_unfinished_job_needs_cannot_be_deleted() -> None:
     session = FakeSession(_document(), blocking_job_ids=["job_a", "job_b"])
 
     with pytest.raises(KnownOperationError) as exc:
-        documents.delete_document(session, file_id="file_123", settings=_settings())
+        documents.delete_document(
+        session,
+        file_id="file_123",
+        workspace_id="ws_acme",
+        settings=_settings(),
+    )
 
     assert exc.value.code == "FILE_IN_USE"
     assert exc.value.details["job_ids"] == ["job_a", "job_b"]
@@ -141,7 +173,12 @@ def test_a_file_an_unfinished_job_needs_cannot_be_deleted() -> None:
 def test_deleting_an_output_is_recorded_on_the_job_that_produced_it() -> None:
     session = FakeSession(_document(source_job_id="job_123"))
 
-    documents.delete_document(session, file_id="file_123", settings=_settings())
+    documents.delete_document(
+        session,
+        file_id="file_123",
+        workspace_id="ws_acme",
+        settings=_settings(),
+    )
 
     events = [item for item in session.added if isinstance(item, models.AuditEvent)]
     assert [event.event_type for event in events] == ["output.deleted"]
@@ -152,7 +189,12 @@ def test_deleting_an_output_is_recorded_on_the_job_that_produced_it() -> None:
 def test_deleting_an_uploaded_input_records_no_job_event() -> None:
     session = FakeSession(_document(source_job_id=None))
 
-    documents.delete_document(session, file_id="file_123", settings=_settings())
+    documents.delete_document(
+        session,
+        file_id="file_123",
+        workspace_id="ws_acme",
+        settings=_settings(),
+    )
 
     assert [item for item in session.added if isinstance(item, models.AuditEvent)] == []
 

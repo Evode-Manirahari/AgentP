@@ -48,7 +48,7 @@ def test_listing_summarizes_each_document() -> None:
     created = datetime.now(UTC)
     session = FakeSession([_document("file_1", source_job_id="job_9", created_at=created)])
 
-    response = documents.list_documents_for_response(session)
+    response = documents.list_documents_for_response(session, workspace_id="ws_acme")
 
     assert response.count == 1
     assert response.limit == 50
@@ -70,7 +70,7 @@ def test_listing_reports_deleted_documents_with_their_timestamp() -> None:
     purged_at = datetime.now(UTC) - timedelta(hours=2)
     session = FakeSession([_document("file_1", status="deleted", deleted_at=purged_at)])
 
-    response = documents.list_documents_for_response(session)
+    response = documents.list_documents_for_response(session, workspace_id="ws_acme")
 
     assert response.files[0].status == "deleted"
     assert response.files[0].deleted_at == purged_at
@@ -81,7 +81,9 @@ def test_listing_reports_deleted_documents_with_their_timestamp() -> None:
 def test_listing_echoes_the_requested_window() -> None:
     session = FakeSession([_document("file_1"), _document("file_2")])
 
-    response = documents.list_documents_for_response(session, limit=2, offset=10)
+    response = documents.list_documents_for_response(
+        session, workspace_id="ws_acme", limit=2, offset=10
+    )
 
     assert response.count == 2
     assert response.limit == 2
@@ -89,7 +91,9 @@ def test_listing_echoes_the_requested_window() -> None:
 
 
 def test_listing_is_empty_when_nothing_matches() -> None:
-    response = documents.list_documents_for_response(FakeSession([]), status_filter="rejected")
+    response = documents.list_documents_for_response(
+        FakeSession([]), workspace_id="ws_acme", status_filter="rejected"
+    )
 
     assert response.files == []
     assert response.count == 0
@@ -128,7 +132,7 @@ def test_paging_is_ordered_by_a_unique_tiebreak() -> None:
     # timestamps. Ordering on it alone lets an offset repeat or skip a row between pages.
     session = FakeSession([_document("file_1")])
 
-    documents.list_documents_for_response(session, limit=10, offset=10)
+    documents.list_documents_for_response(session, workspace_id="ws_acme", limit=10, offset=10)
 
     order_by = str(session.statement).split("ORDER BY")[1]
     assert "documents.created_at DESC" in order_by
@@ -139,7 +143,7 @@ def test_job_paging_uses_the_same_tiebreak() -> None:
     jobs = importlib.import_module("app.services.jobs")
     session = FakeSession([])
 
-    jobs.list_jobs_for_response(session, limit=10, offset=10)
+    jobs.list_jobs_for_response(session, workspace_id="ws_acme", limit=10, offset=10)
 
     order_by = str(session.statement).split("ORDER BY")[1]
     assert "jobs.created_at DESC" in order_by

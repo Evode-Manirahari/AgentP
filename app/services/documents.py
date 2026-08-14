@@ -64,22 +64,43 @@ def retention_cutoff(*, settings: Settings, now: datetime | None = None) -> date
     return (now or datetime.now(UTC)) - timedelta(days=settings.document_retention_days)
 
 
-def lock_document(session: Session, file_id: str) -> Document | None:
-    """Take a row lock so a document cannot be purged and job-referenced concurrently."""
-    return session.get(Document, file_id, with_for_update=True)
+def lock_document(
+    session: Session,
+    file_id: str,
+    *,
+    workspace_id: str | None,
+) -> Document | None:
+    """Take a row lock so a document cannot be purged and job-referenced concurrently.
 
-
-def is_in_active_job(session: Session, document_id: str) -> bool:
-    return (
-        session.scalar(
-            select(JobInput.id)
-            .join(Job, Job.id == JobInput.job_id)
-            .where(JobInput.document_id == document_id)
-            .where(Job.status.in_(ACTIVE_JOB_STATUSES))
-            .limit(1)
-        )
-        is not None
+    ``workspace_id`` is required rather than defaulting, so that reaching across tenants is
+    always a written choice. Only the retention sweep passes ``None``.
+    """
+    if workspace_id is None:
+        return session.get(Document, file_id, with_for_update=True)
+    return session.scalar(
+        select(Document)
+        .where(Document.id == file_id)
+        .where(Document.workspace_id == workspace_id)
+        .with_for_update()
     )
+
+
+def is_in_active_job(
+    session: Session,
+    document_id: str,
+    *,
+    workspace_id: str | None,
+) -> bool:
+    statement = (
+        select(JobInput.id)
+        .join(Job, Job.id == JobInput.job_id)
+        .where(JobInput.document_id == document_id)
+        .where(Job.status.in_(ACTIVE_JOB_STATUSES))
+        .limit(1)
+    )
+    if workspace_id is not None:
+        statement = statement.where(Job.workspace_id == workspace_id)
+    return session.scalar(statement) is not None
 
 
 def purge_expired_documents(
@@ -112,7 +133,8 @@ def purge_expired_documents(
         # One document at a time, locked. Selecting is not enough: a job could attach this
         # document as an input between the select above and the purge below, and would then
         # start with bytes that are about to disappear.
-        document = lock_document(session, file_id)
+        # Deliberately unscoped: retention is a platform-wide sweep, not a tenant action.
+        document = lock_document(session, file_id, workspace_id=None)
         if document is None or is_deleted(document):
             # A concurrent sweep already dealt with it.
             session.commit()
@@ -120,7 +142,7 @@ def purge_expired_documents(
 
         examined += 1
         # An unfinished job still needs its input, however old that input is.
-        if is_in_active_job(session, file_id):
+        if is_in_active_job(session, file_id, workspace_id=document.workspace_id):
             skipped += 1
             session.commit()
             continue
@@ -155,6 +177,7 @@ def _document_summary(document: Document) -> FileSummaryResponse:
 def list_documents_for_response(
     session: Session,
     *,
+    workspace_id: str,
     status_filter: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -164,6 +187,7 @@ def list_documents_for_response(
     # a timestamp exactly. Without a tiebreak, paging can repeat or skip them.
     statement = (
         select(Document)
+        .where(Document.workspace_id == workspace_id)
         .order_by(Document.created_at.desc(), Document.id.desc())
         .limit(limit)
         .offset(offset)
@@ -180,12 +204,18 @@ def list_documents_for_response(
     )
 
 
-def _blocking_job_ids(session: Session, document_id: str) -> list[str]:
+def _blocking_job_ids(
+    session: Session,
+    document_id: str,
+    *,
+    workspace_id: str,
+) -> list[str]:
     return list(
         session.scalars(
             select(Job.id)
             .join(JobInput, JobInput.job_id == Job.id)
             .where(JobInput.document_id == document_id)
+            .where(Job.workspace_id == workspace_id)
             .where(Job.status.in_(ACTIVE_JOB_STATUSES))
             .order_by(Job.created_at)
         )
@@ -212,6 +242,7 @@ def purge_document(
     if document.source_job_id:
         add_audit_event(
             session,
+            workspace_id=document.workspace_id,
             job_id=document.source_job_id,
             event_type="output.deleted",
             payload={
@@ -227,12 +258,13 @@ def delete_document(
     session: Session,
     *,
     file_id: str,
+    workspace_id: str,
     settings: Settings | None = None,
 ) -> DocumentDeleteResponse:
     active_settings = settings or get_settings()
     # Locked for the same reason the sweep locks: the in-use check below is only meaningful
     # if no job can attach this document as an input before the purge commits.
-    document = lock_document(session, file_id)
+    document = lock_document(session, file_id, workspace_id=workspace_id)
     if document is None:
         raise KnownOperationError(
             "FILE_NOT_FOUND",
@@ -248,7 +280,11 @@ def delete_document(
             deleted_at=document.deleted_at,
         )
 
-    blocking_job_ids = _blocking_job_ids(session, document.id)
+    blocking_job_ids = _blocking_job_ids(
+        session,
+        document.id,
+        workspace_id=document.workspace_id,
+    )
     if blocking_job_ids:
         raise KnownOperationError(
             "FILE_IN_USE",

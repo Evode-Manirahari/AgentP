@@ -17,7 +17,7 @@ class FakeSession:
     def __init__(self, document: object | None) -> None:
         self.document = document
 
-    def get(self, model: object, file_id: str) -> object | None:
+    def scalar(self, statement: object) -> object | None:
         return self.document
 
 
@@ -32,6 +32,7 @@ class FakeStorageService:
 def _document() -> Any:
     return models.Document(
         id="file_123",
+        workspace_id="ws_acme",
         original_filename="merged.pdf",
         mime_type="application/pdf",
         size_bytes=17,
@@ -48,6 +49,12 @@ def test_download_file_content_returns_pdf_response(monkeypatch: pytest.MonkeyPa
         "file_123",
         FakeSession(_document()),
         config.Settings(),
+        importlib.import_module("app.services.auth").AuthContext(
+            workspace_id="ws_acme",
+            workspace_name="Acme",
+            api_key_id="key_1",
+            api_key_name="test",
+        ),
     )
 
     response_path = Path(response.path)
@@ -61,7 +68,17 @@ def test_download_file_content_returns_pdf_response(monkeypatch: pytest.MonkeyPa
 
 def test_download_file_content_returns_not_found_for_missing_file() -> None:
     with pytest.raises(api_files.HTTPException) as exc:
-        api_files.download_file_content("missing", FakeSession(None), config.Settings())
+        api_files.download_file_content(
+            "missing",
+            FakeSession(None),
+            config.Settings(),
+            importlib.import_module("app.services.auth").AuthContext(
+                workspace_id="ws_acme",
+                workspace_name="Acme",
+                api_key_id="key_1",
+                api_key_name="test",
+            ),
+        )
 
     assert exc.value.status_code == 404
     assert exc.value.detail["error"]["code"] == "FILE_NOT_FOUND"

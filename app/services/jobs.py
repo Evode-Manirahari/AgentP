@@ -191,10 +191,15 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
 def _idempotent_match(
     session: Session,
     *,
+    workspace_id: str,
     idempotency_key: str,
     fingerprint: str | None,
 ) -> Job | None:
-    existing = session.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
+    existing = session.scalar(
+        select(Job)
+        .where(Job.workspace_id == workspace_id)
+        .where(Job.idempotency_key == idempotency_key)
+    )
     if existing is None:
         return None
     if existing.idempotency_fingerprint and existing.idempotency_fingerprint != fingerprint:
@@ -224,6 +229,7 @@ def _enqueue_or_fail(session: Session, job: Job, *, settings: Settings) -> Job:
         session.add(job)
         add_audit_event(
             session,
+            workspace_id=job.workspace_id,
             job_id=job.id,
             event_type="job.enqueue_failed",
             payload={"reason": str(exc)},
@@ -240,6 +246,7 @@ def _enqueue_or_fail(session: Session, job: Job, *, settings: Settings) -> Job:
     session.add(job)
     add_audit_event(
         session,
+        workspace_id=job.workspace_id,
         job_id=job.id,
         event_type="job.enqueued",
         payload={"rq_job_id": rq_job_id, "queue": settings.queue_name},
@@ -260,6 +267,7 @@ def _resume_existing_job(session: Session, job: Job, *, settings: Settings) -> J
     session.add(job)
     add_audit_event(
         session,
+        workspace_id=job.workspace_id,
         job_id=job.id,
         event_type="job.enqueue_retried",
         payload={"previous_error_code": "QUEUE_UNAVAILABLE"},
@@ -271,6 +279,7 @@ def _resume_existing_job(session: Session, job: Job, *, settings: Settings) -> J
 def create_job(
     session: Session,
     *,
+    workspace_id: str,
     request: JobCreate,
     idempotency_key: str | None,
     settings: Settings | None = None,
@@ -281,6 +290,7 @@ def create_job(
     if idempotency_key:
         existing = _idempotent_match(
             session,
+            workspace_id=workspace_id,
             idempotency_key=idempotency_key,
             fingerprint=idempotency_fingerprint,
         )
@@ -291,18 +301,24 @@ def create_job(
     # committed below. Otherwise a retention sweep or a delete can purge a document between
     # the status check and the insert, leaving a job pointing at bytes that no longer exist.
     # Sorted so two concurrent creations sharing inputs cannot deadlock on lock ordering.
+    documents_by_id: dict[str, Document] = {}
     for locked_file_id in sorted({input_ref.file_id for input_ref in request.inputs}):
-        lock_document(session, locked_file_id)
-
-    documents: list[Document] = []
-    for input_ref in request.inputs:
-        document = session.get(Document, input_ref.file_id)
+        document = lock_document(
+            session,
+            locked_file_id,
+            workspace_id=workspace_id,
+        )
         if document is None:
             raise KnownOperationError(
                 "FILE_NOT_FOUND",
                 "An input file does not exist.",
-                details={"file_id": input_ref.file_id},
+                details={"file_id": locked_file_id},
             )
+        documents_by_id[locked_file_id] = document
+
+    documents: list[Document] = []
+    for input_ref in request.inputs:
+        document = documents_by_id[input_ref.file_id]
         if document.status != DocumentStatus.VALIDATED.value:
             raise KnownOperationError(
                 "FILE_NOT_VALIDATED",
@@ -314,6 +330,7 @@ def create_job(
     _validate_job_request(request, documents)
 
     job = Job(
+        workspace_id=workspace_id,
         operation=request.operation,
         parameters=request.parameters,
         idempotency_key=idempotency_key,
@@ -328,6 +345,7 @@ def create_job(
         winner = (
             _idempotent_match(
                 session,
+                workspace_id=workspace_id,
                 idempotency_key=idempotency_key,
                 fingerprint=idempotency_fingerprint,
             )
@@ -343,6 +361,7 @@ def create_job(
 
     add_audit_event(
         session,
+        workspace_id=workspace_id,
         job_id=job.id,
         event_type="job.created",
         payload={
@@ -385,10 +404,15 @@ def cancel_queued_rq_job(job: Job, *, settings: Settings) -> None:
 def cancel_job(
     session: Session,
     *,
+    workspace_id: str,
     job_id: str,
     settings: Settings | None = None,
 ) -> Job:
-    job = session.get(Job, job_id)
+    job = session.scalar(
+        select(Job)
+        .where(Job.id == job_id)
+        .where(Job.workspace_id == workspace_id)
+    )
     if job is None:
         raise KnownOperationError(
             "JOB_NOT_FOUND",
@@ -412,6 +436,7 @@ def cancel_job(
     session.add(job)
     add_audit_event(
         session,
+        workspace_id=workspace_id,
         job_id=job.id,
         event_type="job.canceled",
         payload={"queue_job_id": job.queue_job_id},
@@ -460,6 +485,7 @@ def _job_summary(job: Job) -> JobSummaryResponse:
 def list_jobs_for_response(
     session: Session,
     *,
+    workspace_id: str,
     status_filter: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -468,6 +494,7 @@ def list_jobs_for_response(
     statement = (
         select(Job)
         .options(selectinload(Job.outputs))
+        .where(Job.workspace_id == workspace_id)
         .order_by(Job.created_at.desc(), Job.id.desc())
         .limit(limit)
         .offset(offset)
@@ -484,7 +511,12 @@ def list_jobs_for_response(
     )
 
 
-def load_job_for_response(session: Session, job_id: str) -> Job | None:
+def load_job_for_response(
+    session: Session,
+    job_id: str,
+    *,
+    workspace_id: str,
+) -> Job | None:
     return session.scalar(
         select(Job)
         .options(
@@ -492,6 +524,7 @@ def load_job_for_response(session: Session, job_id: str) -> Job | None:
             selectinload(Job.audit_events),
         )
         .where(Job.id == job_id)
+        .where(Job.workspace_id == workspace_id)
     )
 
 

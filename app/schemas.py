@@ -204,6 +204,62 @@ class WebhookDeliveryListResponse(BaseModel):
     offset: int
 
 
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    initial_key_name: str = Field(default="Default", min_length=1, max_length=200)
+
+    @field_validator("name", "initial_key_name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Name must not be blank.")
+        return normalized
+
+
+class WorkspaceResponse(BaseModel):
+    workspace_id: str
+    name: str
+    created_at: datetime
+
+
+class ApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Name must not be blank.")
+        return normalized
+
+
+class ApiKeyResponse(BaseModel):
+    api_key_id: str
+    name: str
+    prefix: str
+    is_platform_admin: bool
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+
+class ApiKeyCreateResponse(ApiKeyResponse):
+    token: str
+
+
+class ApiKeyListResponse(BaseModel):
+    api_keys: list[ApiKeyResponse]
+    count: int
+    limit: int
+    offset: int
+
+
+class WorkspaceCreateResponse(BaseModel):
+    workspace: WorkspaceResponse
+    api_key: ApiKeyCreateResponse
+
+
 class ErrorBody(BaseModel):
     code: str
     message: str
