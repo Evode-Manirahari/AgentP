@@ -25,6 +25,7 @@ from app.schemas import (
 from app.services.auth import AuthContext, require_auth_context
 from app.services.documents import delete_document, is_deleted, list_documents_for_response
 from app.services.storage import StorageService
+from app.services.usage import enforce_document_quota
 from app.services.validation import validate_input_pdf
 
 router = APIRouter(
@@ -130,6 +131,13 @@ async def upload_file(
     try:
         validation = validate_input_pdf(tmp_path, settings=settings)
         sha256 = sha256_path(tmp_path)
+        enforce_document_quota(
+            session,
+            workspace_id=context.workspace_id,
+            incoming_bytes=total_bytes,
+            incoming_documents=1,
+            settings=settings,
+        )
         document = Document(
             workspace_id=context.workspace_id,
             original_filename=filename,
@@ -160,7 +168,8 @@ async def upload_file(
         )
     except KnownOperationError as exc:
         session.rollback()
-        raise operation_http_error(exc) from exc
+        status_code = status.HTTP_409_CONFLICT if exc.code.startswith("WORKSPACE_") else 400
+        raise operation_http_error(exc, status_code=status_code) from exc
     finally:
         tmp_path.unlink(missing_ok=True)
 

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
 
     max_upload_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
     max_pages: int = Field(default=500, gt=0)
+    workspace_storage_limit_bytes: int = Field(default=10 * 1024 * 1024 * 1024, gt=0)
+    workspace_document_limit: int = Field(default=10_000, gt=0)
+    workspace_active_job_limit: int = Field(default=25, gt=0)
+    workspace_jobs_per_hour_limit: int = Field(default=1_000, gt=0)
     operation_timeout_seconds: int = Field(default=300, gt=0)
     qpdf_timeout_seconds: int = Field(default=30, gt=0)
     download_url_expires_seconds: int = Field(default=900, gt=0)

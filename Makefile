@@ -1,4 +1,5 @@
-.PHONY: build up down logs ps test smoke db-upgrade container-test demo demo-packet retention
+.PHONY: build up down logs ps test smoke db-upgrade container-test demo demo-packet \
+	packet-eval packet-eval-fast retention
 
 build:
 	docker compose build
@@ -16,7 +17,7 @@ ps:
 	docker compose ps
 
 test:
-	python3 -m compileall app worker tests
+	python3 -m compileall agentp_client app evals worker tests
 	python3 -m pytest
 
 smoke:
@@ -33,6 +34,14 @@ demo:
 
 demo-packet:
 	./scripts/demo_packet.sh
+
+packet-eval:
+	python3 -m evals.packet_reliability \
+		--json-out reports/packet-reliability.json \
+		--markdown-out reports/packet-reliability.md
+
+packet-eval-fast:
+	python3 -m evals.packet_reliability --skip-ocr
 
 retention:
 	docker compose run --rm api python -m worker.retention

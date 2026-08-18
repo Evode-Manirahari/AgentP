@@ -33,7 +33,10 @@ class FakeSession:
         self.rollbacks = 0
 
     def scalar(self, statement: object) -> object | None:
-        if "FROM documents" in str(statement):
+        statement_text = str(statement)
+        if "count(jobs.id)" in statement_text:
+            return 0
+        if "FROM documents" in statement_text:
             parameters = statement.compile().params
             file_id = next(
                 value
@@ -47,6 +50,8 @@ class FakeSession:
         return self.scalar_results.pop(0)
 
     def get(self, model: object, item_id: str, **kwargs: object) -> object | None:
+        if model is models.Workspace:
+            return models.Workspace(id=item_id, name="Acme")
         if kwargs.get("with_for_update"):
             self.locked.append(item_id)
         return self.document
@@ -130,7 +135,7 @@ def test_concurrent_duplicate_key_returns_the_winning_job(
         queue_job_id="rq_winner",
     )
     session = FakeSession(
-        scalar_results=[None, winner],
+        scalar_results=[None, None, winner],
         document=_document(),
         flush_results=[_integrity_error()],
     )
@@ -160,7 +165,7 @@ def test_concurrent_duplicate_key_with_different_request_conflicts() -> None:
         queue_job_id="rq_winner",
     )
     session = FakeSession(
-        scalar_results=[None, winner],
+        scalar_results=[None, None, winner],
         document=_document(),
         flush_results=[_integrity_error()],
     )

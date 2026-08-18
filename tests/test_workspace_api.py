@@ -12,14 +12,22 @@ for _module_name in ["fastapi", "httpx", "pydantic_settings", "sqlalchemy"]:
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.dialects.postgresql import JSONB  # noqa: E402
+from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 api_errors = importlib.import_module("app.api.errors")
 workspace_api = importlib.import_module("app.api.workspaces")
+usage_api = importlib.import_module("app.api.usage")
 db = importlib.import_module("app.db")
 models = importlib.import_module("app.models")
 auth = importlib.import_module("app.services.auth")
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_as_json(element: object, compiler: object, **kw: object) -> str:
+    return "JSON"
 
 
 @dataclass(frozen=True)
@@ -58,6 +66,8 @@ def workspace_api_fixture() -> Generator[WorkspaceApi, None, None]:
     )
     models.Workspace.__table__.create(engine)
     models.ApiKey.__table__.create(engine)
+    models.Job.__table__.create(engine)
+    models.Document.__table__.create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
 
     admin_token, admin_key = _stored_key(
@@ -89,6 +99,7 @@ def workspace_api_fixture() -> Generator[WorkspaceApi, None, None]:
     api_errors.install_exception_handlers(test_app)
     test_app.include_router(workspace_api.workspace_router, prefix="/v1")
     test_app.include_router(workspace_api.api_key_router, prefix="/v1")
+    test_app.include_router(usage_api.router, prefix="/v1")
 
     def get_test_session() -> Generator[Session, None, None]:
         with sessions() as session:
@@ -216,3 +227,55 @@ def test_key_lifecycle_returns_secrets_once_and_stays_in_workspace(
     with workspace_api_fixture.sessions() as session:
         assert auth.authenticate_api_key(session, created_body["token"]) is None
         assert auth.authenticate_api_key(session, rotated.json()["token"]) is not None
+
+
+def test_usage_endpoint_reports_only_the_authenticated_workspace(
+    workspace_api_fixture: WorkspaceApi,
+) -> None:
+    with workspace_api_fixture.sessions() as session:
+        session.add_all(
+            [
+                models.Document(
+                    id="file_tenant",
+                    workspace_id="ws_tenant",
+                    original_filename="tenant.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=321,
+                    sha256="a" * 64,
+                    storage_key="workspaces/ws_tenant/tenant.pdf",
+                    page_count=1,
+                    status=models.DocumentStatus.VALIDATED.value,
+                ),
+                models.Document(
+                    id="file_default",
+                    workspace_id=models.DEFAULT_WORKSPACE_ID,
+                    original_filename="default.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=9_999,
+                    sha256="b" * 64,
+                    storage_key="workspaces/ws_default/default.pdf",
+                    page_count=1,
+                    status=models.DocumentStatus.VALIDATED.value,
+                ),
+                models.Job(
+                    id="job_tenant",
+                    workspace_id="ws_tenant",
+                    operation="prepare_packet",
+                    status=models.JobStatus.RUNNING.value,
+                    parameters={},
+                ),
+            ]
+        )
+        session.commit()
+
+    response = workspace_api_fixture.client.get(
+        "/v1/usage",
+        headers=_headers(workspace_api_fixture.tenant_token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workspace_id"] == "ws_tenant"
+    assert body["storage_bytes"]["used"] == 321
+    assert body["documents"]["used"] == 1
+    assert body["active_jobs"]["used"] == 1

@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from redis import Redis
+from rq import Queue, Worker
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,7 @@ from app.api.errors import install_exception_handlers
 from app.api.files import router as files_router
 from app.api.jobs import router as jobs_router
 from app.api.operations import router as operations_router
+from app.api.usage import router as usage_router
 from app.api.webhooks import router as webhooks_router
 from app.api.workspaces import api_key_router, workspace_router
 from app.config import Settings, get_settings
@@ -70,6 +72,20 @@ def ready(
             client.close()
 
     _record_check(checks, "redis", check_redis)
+
+    def check_worker() -> None:
+        client = Redis.from_url(settings.redis_url)
+        try:
+            queue = Queue(settings.queue_name, connection=client)
+            worker_count = Worker.count(connection=client, queue=queue)
+            if worker_count < 1:
+                raise RuntimeError(
+                    f"no live RQ workers are consuming queue '{settings.queue_name}'"
+                )
+        finally:
+            client.close()
+
+    _record_check(checks, "worker", check_worker)
     _record_check(checks, "storage", lambda: StorageService(settings).ensure_bucket())
 
     if any(check["status"] != "ok" for check in checks.values()):
@@ -91,6 +107,7 @@ def ready(
 app.include_router(files_router, prefix="/v1")
 app.include_router(jobs_router, prefix="/v1")
 app.include_router(operations_router, prefix="/v1")
+app.include_router(usage_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(workspace_router, prefix="/v1")
 app.include_router(api_key_router, prefix="/v1")
