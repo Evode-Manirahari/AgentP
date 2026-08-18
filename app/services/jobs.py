@@ -24,6 +24,7 @@ from app.models import (
 from app.operations.base import KnownOperationError
 from app.operations.compress import PRESETS
 from app.operations.executor import SUPPORTED_OPERATIONS
+from app.operations.packet_manifest import parse_packet_manifest
 from app.operations.prepare_packet import PACKET_ORDERS
 from app.schemas import (
     AuditEventResponse,
@@ -43,7 +44,7 @@ from worker.queue import enqueue_job
 OCR_LANGUAGE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-")
 ALLOWED_PARAMETERS = {
     "merge": {"ocr_if_needed", "language", "deskew"},
-    "prepare_packet": {"language", "deskew", "order"},
+    "prepare_packet": {"language", "deskew", "order", "manifest", "allow_unlisted"},
     "split": {"page_ranges"},
     "ocr": {"language", "deskew"},
     "compress": {"preset"},
@@ -62,7 +63,16 @@ TERMINAL_JOB_STATUSES = {
 def job_request_fingerprint(request: JobCreate) -> str:
     payload = {
         "operation": request.operation,
-        "inputs": [input_ref.file_id for input_ref in request.inputs],
+        # Preserve the legacy shape for unlabeled jobs so idempotent replays created by
+        # earlier releases continue to match after packet labels are introduced.
+        "inputs": [
+            (
+                input_ref.file_id
+                if input_ref.label is None
+                else {"file_id": input_ref.file_id, "label": input_ref.label}
+            )
+            for input_ref in request.inputs
+        ],
         "parameters": request.parameters,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
@@ -146,6 +156,15 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
 
     _reject_unknown_parameters(request)
 
+    if request.operation != "prepare_packet" and any(
+        input_ref.label is not None for input_ref in request.inputs
+    ):
+        raise KnownOperationError(
+            "INPUT_LABEL_NOT_SUPPORTED",
+            "Input labels are only supported by the prepare_packet operation.",
+            details={"operation": request.operation},
+        )
+
     if request.operation == "merge":
         _require_bool_parameter(request, "ocr_if_needed")
         _require_bool_parameter(request, "deskew")
@@ -160,6 +179,22 @@ def _validate_job_request(request: JobCreate, documents: list[Document]) -> None
                 "INVALID_PACKET_ORDER",
                 "Unsupported packet order.",
                 details={"order": order, "allowed": sorted(PACKET_ORDERS)},
+            )
+        labels = [input_ref.label for input_ref in request.inputs]
+        if order == "manifest":
+            parse_packet_manifest(
+                input_count=len(documents),
+                input_labels=labels,
+                manifest=request.parameters.get("manifest"),
+                allow_unlisted=request.parameters.get("allow_unlisted", False),
+            )
+        elif any(label is not None for label in labels) or any(
+            name in request.parameters for name in {"manifest", "allow_unlisted"}
+        ):
+            raise KnownOperationError(
+                "PACKET_MANIFEST_NOT_ENABLED",
+                "Packet labels and manifest settings require order='manifest'.",
+                details={"order": order},
             )
 
     if request.operation == "split":
@@ -329,10 +364,16 @@ def create_job(
 
     _validate_job_request(request, documents)
 
+    stored_parameters = dict(request.parameters)
+    if request.operation == "prepare_packet" and request.parameters.get("order") == "manifest":
+        stored_parameters["input_labels"] = [
+            input_ref.label for input_ref in request.inputs
+        ]
+
     job = Job(
         workspace_id=workspace_id,
         operation=request.operation,
-        parameters=request.parameters,
+        parameters=stored_parameters,
         idempotency_key=idempotency_key,
         idempotency_fingerprint=idempotency_fingerprint,
     )
@@ -367,7 +408,11 @@ def create_job(
         payload={
             "operation": request.operation,
             "input_file_ids": [document.id for document in documents],
-            "parameters": request.parameters,
+            "inputs": [
+                {"file_id": document.id, "label": input_ref.label}
+                for document, input_ref in zip(documents, request.inputs, strict=True)
+            ],
+            "parameters": stored_parameters,
             "idempotency_key": idempotency_key,
         },
     )

@@ -66,6 +66,9 @@ def execute_operation(
             language=str(parameters.get("language", "eng")),
             deskew=bool(parameters.get("deskew", True)),
             order=str(parameters.get("order", "as_provided")),
+            input_labels=parameters.get("input_labels"),
+            manifest=parameters.get("manifest"),
+            allow_unlisted=bool(parameters.get("allow_unlisted", False)),
             timeout_seconds=settings.operation_timeout_seconds,
         )
 

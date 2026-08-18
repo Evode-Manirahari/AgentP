@@ -8,9 +8,10 @@ from typing import Any
 from app.operations.base import KnownOperationError, OperationOutput, OperationResult
 from app.operations.merge import merge_pdfs
 from app.operations.ocr import ocr_pdf
+from app.operations.packet_manifest import PacketManifest, parse_packet_manifest
 from app.operations.pdf_utils import count_pdf_pages, is_likely_scanned, sha256_path
 
-PACKET_ORDERS = {"as_provided", "filename"}
+PACKET_ORDERS = {"as_provided", "filename", "manifest"}
 PACKET_FILENAME = "packet.pdf"
 AUDIT_REPORT_FILENAME = "packet-audit-report.json"
 
@@ -31,6 +32,9 @@ def prepare_packet(
     language: str = "eng",
     deskew: bool = True,
     order: str = "as_provided",
+    input_labels: list[str] | None = None,
+    manifest: list[dict[str, Any]] | None = None,
+    allow_unlisted: bool = False,
     timeout_seconds: int = 300,
 ) -> OperationResult:
     if len(input_paths) < 2:
@@ -44,6 +48,21 @@ def prepare_packet(
             "INVALID_PACKET_ORDER",
             "Unsupported packet order.",
             details={"order": order, "allowed": sorted(PACKET_ORDERS)},
+        )
+
+    parsed_manifest: PacketManifest | None = None
+    if order == "manifest":
+        parsed_manifest = parse_packet_manifest(
+            input_count=len(input_paths),
+            input_labels=input_labels,
+            manifest=manifest,
+            allow_unlisted=allow_unlisted,
+        )
+    elif input_labels is not None or manifest is not None or allow_unlisted:
+        raise KnownOperationError(
+            "PACKET_MANIFEST_NOT_ENABLED",
+            "Packet labels and manifest settings require order='manifest'.",
+            details={"order": order},
         )
 
     names = list(input_names or [])
@@ -63,6 +82,9 @@ def prepare_packet(
         }
         for position, (path, name) in enumerate(zip(input_paths, names, strict=True), start=1)
     ]
+    if parsed_manifest is not None:
+        for entry, label in zip(entries, parsed_manifest.input_labels, strict=True):
+            entry["label"] = label
     steps = [
         _step(
             "inspect",
@@ -115,12 +137,27 @@ def prepare_packet(
     )
 
     organize_started = _now()
-    if order == "filename":
+    if order == "manifest":
+        assert parsed_manifest is not None
+        entries_by_position = {entry["position"]: entry for entry in entries}
+        ordered = [
+            entries_by_position[position] for position in parsed_manifest.ordered_positions()
+        ]
+    elif order == "filename":
         ordered = sorted(entries, key=lambda entry: (entry["filename"].lower(), entry["position"]))
     else:
         ordered = list(entries)
     sequence = [entry["position"] for entry in ordered]
-    steps.append(_step("organize", organize_started, {"order": order, "sequence": sequence}))
+    organize_detail: dict[str, Any] = {"order": order, "sequence": sequence}
+    if parsed_manifest is not None:
+        organize_detail.update(
+            {
+                "manifest": parsed_manifest.definition(),
+                "manifest_validation": parsed_manifest.validation(),
+                "unlisted_labels": list(parsed_manifest.unlisted_labels),
+            }
+        )
+    steps.append(_step("organize", organize_started, organize_detail))
 
     merge_started = _now()
     packet_path = workspace / PACKET_FILENAME
@@ -132,9 +169,22 @@ def prepare_packet(
 
     total_input_pages = sum(entry["page_count"] for entry in entries)
     ocr_applied_to = [entry["position"] for entry in entries if entry["ocr_applied"]]
-    report = {
+    report_parameters: dict[str, Any] = {
+        "language": language,
+        "deskew": deskew,
+        "order": order,
+    }
+    if parsed_manifest is not None:
+        report_parameters.update(
+            {
+                "manifest": parsed_manifest.definition(),
+                "allow_unlisted": parsed_manifest.allow_unlisted,
+            }
+        )
+
+    report: dict[str, Any] = {
         "workflow": "prepare_packet",
-        "parameters": {"language": language, "deskew": deskew, "order": order},
+        "parameters": report_parameters,
         "inputs": [
             {key: value for key, value in entry.items() if key != "path"} for entry in entries
         ],
@@ -149,6 +199,9 @@ def prepare_packet(
             "warning_count": len(warnings),
         },
     }
+    if parsed_manifest is not None:
+        report["manifest_validation"] = parsed_manifest.validation()
+        report["unlisted_labels"] = list(parsed_manifest.unlisted_labels)
     report_path = workspace / AUDIT_REPORT_FILENAME
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
@@ -174,5 +227,14 @@ def prepare_packet(
             "ocr_applied_to_inputs": ocr_applied_to,
             "total_input_pages": total_input_pages,
             "warnings": warnings,
+            **(
+                {
+                    "manifest": parsed_manifest.definition(),
+                    "manifest_validation": parsed_manifest.validation(),
+                    "unlisted_labels": list(parsed_manifest.unlisted_labels),
+                }
+                if parsed_manifest is not None
+                else {}
+            ),
         },
     )

@@ -187,6 +187,60 @@ def validate_operation_result(
                     "reported_inputs": reported_inputs,
                 },
             )
+
+        expected_sequence = result.metadata.get("sequence")
+        reported_sequence = report.get("sequence")
+        output_sequence = result.outputs[0].metadata.get("sequence")
+        sequence_is_permutation = (
+            isinstance(reported_sequence, list)
+            and sorted(reported_sequence) == list(range(1, len(input_paths) + 1))
+        )
+        sequence_is_consistent = (
+            sequence_is_permutation
+            and reported_sequence == expected_sequence
+            and reported_sequence == output_sequence
+        )
+        validation["assertions"]["packet_sequence"] = {
+            "expected_sequence": expected_sequence,
+            "reported_sequence": reported_sequence,
+            "passed": sequence_is_consistent,
+        }
+        if not sequence_is_consistent:
+            raise KnownOperationError(
+                "PACKET_SEQUENCE_VALIDATION_FAILED",
+                "The packet ordering evidence is missing or inconsistent.",
+                details={
+                    "metadata_sequence": expected_sequence,
+                    "reported_sequence": reported_sequence,
+                    "output_sequence": output_sequence,
+                },
+            )
+
+        if result.metadata.get("order") == "manifest":
+            manifest_validation = report.get("manifest_validation")
+            metadata_validation = result.metadata.get("manifest_validation")
+            manifest_passed = (
+                isinstance(manifest_validation, list)
+                and bool(manifest_validation)
+                and manifest_validation == metadata_validation
+                and all(
+                    isinstance(section, dict) and section.get("satisfied") is True
+                    for section in manifest_validation
+                )
+            )
+            validation["assertions"]["packet_manifest"] = {
+                "sections": manifest_validation,
+                "passed": manifest_passed,
+            }
+            if not manifest_passed:
+                raise KnownOperationError(
+                    "PACKET_MANIFEST_VALIDATION_FAILED",
+                    "The packet manifest evidence is missing, inconsistent, or unsatisfied.",
+                    details={
+                        "reported_validation": manifest_validation,
+                        "metadata_validation": metadata_validation,
+                    },
+                )
         validation["warnings"] = report.get("warnings", [])
 
     if operation in {"ocr", "compress"}:

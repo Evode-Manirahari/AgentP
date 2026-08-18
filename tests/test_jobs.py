@@ -73,6 +73,35 @@ def test_job_request_fingerprint_changes_with_request_shape() -> None:
     assert jobs.job_request_fingerprint(base) != jobs.job_request_fingerprint(different_inputs)
 
 
+def test_job_request_fingerprint_includes_packet_input_labels() -> None:
+    for module_name in ["pydantic_settings", "redis", "rq", "sqlalchemy"]:
+        pytest.importorskip(module_name)
+
+    schemas = importlib.import_module("app.schemas")
+    jobs = importlib.import_module("app.services.jobs")
+
+    application_first = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123", label="application"),
+            schemas.JobInputRef(file_id="file_456", label="identity"),
+        ],
+        parameters={"order": "manifest"},
+    )
+    identity_first = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123", label="identity"),
+            schemas.JobInputRef(file_id="file_456", label="application"),
+        ],
+        parameters={"order": "manifest"},
+    )
+
+    assert jobs.job_request_fingerprint(application_first) != jobs.job_request_fingerprint(
+        identity_first
+    )
+
+
 def test_validate_job_status_filter_accepts_known_statuses() -> None:
     for module_name in ["pydantic_settings", "redis", "rq", "sqlalchemy"]:
         pytest.importorskip(module_name)

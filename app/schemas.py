@@ -85,6 +85,12 @@ class OperationsResponse(BaseModel):
 
 class JobInputRef(BaseModel):
     file_id: str
+    label: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9._-]{0,63}$",
+    )
 
 
 class JobCreate(BaseModel):

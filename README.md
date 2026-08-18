@@ -1,8 +1,9 @@
 # AgentP
 
-AgentP is a typed, asynchronous, verifiable PDF execution API for AI agents.
-
-Positioning: the document execution layer for AI agents. Upload business documents, run allowlisted operations, verify the output, and retrieve an immutable artifact with an audit trail.
+AgentP turns a disorganized business-document packet into one searchable, correctly ordered,
+validated PDF plus a machine-readable audit report. It is the deterministic document
+execution layer behind an AI agent: the agent decides what each document means; AgentP
+enforces the packet contract and proves what it produced.
 
 ## What v0 Builds
 
@@ -183,11 +184,45 @@ curl -sS -X POST http://localhost:8000/v1/jobs \
   }'
 ```
 
+An upstream AI agent can label documents semantically and let AgentP enforce ordering and
+completeness without pretending a deterministic PDF engine can classify business meaning:
+
+```bash
+curl -sS -X POST http://localhost:8000/v1/jobs \
+  -H "X-API-Key: $AGENTP_API_KEY" \
+  -H "Idempotency-Key: demo-semantic-packet-001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "operation": "prepare_packet",
+    "inputs": [
+      {"file_id": "file_statement_march", "label": "bank_statement"},
+      {"file_id": "file_identity", "label": "identity"},
+      {"file_id": "file_application", "label": "application"},
+      {"file_id": "file_statement_april", "label": "bank_statement"}
+    ],
+    "parameters": {
+      "order": "manifest",
+      "manifest": [
+        {"label": "application", "min_count": 1, "max_count": 1},
+        {"label": "identity", "min_count": 1, "max_count": 2},
+        {"label": "bank_statement", "min_count": 1, "max_count": 12}
+      ]
+    }
+  }'
+```
+
+Manifest sections define output order. Repeated labels keep their original relative order.
+`min_count` defaults to 1; `max_count` defaults to unlimited. Unknown labels fail closed
+with `PACKET_LABEL_NOT_IN_MANIFEST`, or can be appended in original order by setting
+`allow_unlisted: true`. Missing or excessive sections fail before queueing with
+`PACKET_MANIFEST_COUNT_MISMATCH`.
+
 It runs four recorded steps:
 
 1. `inspect` — page count, SHA-256, and scan detection for every input.
 2. `ocr` — OCR only the inputs that have no usable text layer.
-3. `organize` — order documents by `as_provided` (default) or `filename`.
+3. `organize` — order documents by `as_provided` (default), `filename`, or semantic
+   `manifest`.
 4. `merge` — combine them into `packet.pdf`.
 
 Two outputs come back. `packet.pdf` is the merged, searchable result.
@@ -206,9 +241,11 @@ having to parse the audit report. Warnings are listed on the job as `warnings`, 
 **Treat `succeeded` and `completed_with_warnings` as the same outcome unless you act on
 warnings.** Code that checks `status == "succeeded"` will silently skip warned jobs.
 
-The job only reaches `succeeded` after two assertions hold: the packet contains every
-input page, and the audit report describes every input document. Either failing produces
-`PACKET_PAGE_COUNT_MISMATCH` or `AUDIT_REPORT_INCOMPLETE` instead of a silent result.
+The job only reaches a success state after the packet contains every input page, the audit
+report describes every document, and ordering evidence agrees across the result metadata,
+PDF output, and report. Manifest jobs additionally prove every declared section is
+satisfied. A mismatch fails with a stable validation code instead of returning a silent
+partial result.
 
 Run it end to end against real OCR:
 
@@ -403,7 +440,8 @@ The MCP server exposes strongly typed tools:
 - `list_jobs(status, limit, offset)`
 - `cancel_job(job_id)`
 - `merge_pdfs(file_ids, ocr_if_needed, language, deskew, idempotency_key)`
-- `prepare_packet(file_ids, order, language, deskew, idempotency_key)`
+- `prepare_packet(file_ids, order, language, deskew, input_labels, manifest,
+  allow_unlisted, idempotency_key)`
 - `split_pdf(file_id, page_ranges, idempotency_key)`
 - `ocr_pdf(file_id, language, deskew, idempotency_key)`
 - `compress_pdf(file_id, preset, idempotency_key)`

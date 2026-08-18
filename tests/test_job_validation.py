@@ -76,7 +76,7 @@ def test_rejects_unknown_packet_order_at_create_time() -> None:
         jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
 
     assert exc.value.code == "INVALID_PACKET_ORDER"
-    assert exc.value.details["allowed"] == ["as_provided", "filename"]
+    assert exc.value.details["allowed"] == ["as_provided", "filename", "manifest"]
 
 
 def test_rejects_single_input_packet_at_create_time() -> None:
@@ -100,6 +100,70 @@ def test_accepts_valid_packet_parameters() -> None:
     )
 
     jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+
+def test_accepts_a_valid_semantic_packet_manifest() -> None:
+    request = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123", label="identity"),
+            schemas.JobInputRef(file_id="file_456", label="application"),
+        ],
+        parameters={
+            "order": "manifest",
+            "manifest": [{"label": "application"}, {"label": "identity"}],
+        },
+    )
+
+    jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+
+def test_rejects_a_manifest_without_every_input_label() -> None:
+    request = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123", label="application"),
+            schemas.JobInputRef(file_id="file_456"),
+        ],
+        parameters={"order": "manifest", "manifest": [{"label": "application"}]},
+    )
+
+    with pytest.raises(KnownOperationError) as exc:
+        jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+    assert exc.value.code == "INVALID_PACKET_LABEL"
+
+
+def test_rejects_manifest_labels_with_non_manifest_order() -> None:
+    request = schemas.JobCreate(
+        operation="prepare_packet",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123", label="application"),
+            schemas.JobInputRef(file_id="file_456", label="identity"),
+        ],
+        parameters={"order": "filename"},
+    )
+
+    with pytest.raises(KnownOperationError) as exc:
+        jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+    assert exc.value.code == "PACKET_MANIFEST_NOT_ENABLED"
+
+
+def test_rejects_input_labels_for_other_operations() -> None:
+    request = schemas.JobCreate(
+        operation="merge",
+        inputs=[
+            schemas.JobInputRef(file_id="file_123", label="application"),
+            schemas.JobInputRef(file_id="file_456", label="identity"),
+        ],
+        parameters={},
+    )
+
+    with pytest.raises(KnownOperationError) as exc:
+        jobs._validate_job_request(request, [_document("file_123"), _document("file_456")])
+
+    assert exc.value.code == "INPUT_LABEL_NOT_SUPPORTED"
 
 
 def test_accepts_valid_optional_parameters() -> None:
