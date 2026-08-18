@@ -74,6 +74,50 @@ platform-administrator key in the default workspace. The plaintext is never stor
 any key exists in that workspace, changing `AGENTPDF_API_KEY` does not rotate or recreate
 it; use the key lifecycle below. Keep the development default out of deployed environments.
 
+## Five-Minute Packet
+
+The repository includes an installable client that performs upload, job submission,
+polling, and authenticated artifact download in one command. After the stack is ready:
+
+```bash
+python -m pip install -r requirements-client.txt
+python -m pip install -e . --no-deps
+export AGENTP_API_URL=http://localhost:8000
+export AGENTP_API_KEY=local-dev-key
+agentp packet application.pdf identity.pdf --order filename --out ./packet-result
+```
+
+Success writes both `packet-result/packet.pdf` and
+`packet-result/packet-audit-report.json`. Existing outputs are never overwritten unless
+`--overwrite` is explicit. `completed_with_warnings` is treated as success and the warnings
+remain in the JSON result (`--json`) and audit report.
+
+For semantic ordering, create `packet-manifest.json`:
+
+```json
+[
+  {"label": "application", "min_count": 1, "max_count": 1},
+  {"label": "identity", "min_count": 1, "max_count": 2},
+  {"label": "bank_statement", "min_count": 1, "max_count": 12}
+]
+```
+
+Then provide one label for each positional PDF:
+
+```bash
+agentp packet march.pdf identity.pdf application.pdf april.pdf \
+  --label bank_statement \
+  --label identity \
+  --label application \
+  --label bank_statement \
+  --manifest packet-manifest.json \
+  --out ./packet-result
+```
+
+The client prints a durable `job_id` as soon as the job is submitted, uses bounded polling
+backoff, saves downloads atomically, and emits structured errors with a concrete recovery
+hint. Pass `--json --quiet` for agent-to-agent automation.
+
 ## Workspaces and API Keys
 
 Every API key belongs to one workspace. Its authentication context scopes files, jobs,
@@ -288,6 +332,22 @@ Run it end to end against real OCR:
 ```bash
 make demo-packet
 ```
+
+Measure the workflow against the checked-in regression corpus:
+
+```bash
+make packet-eval
+```
+
+The evaluator checks output validation, page conservation, requested ordering, scan
+detection, OCR application, semantic manifest evidence, known-text recall, and expected
+warnings. Its synthetic cases cover clean digital files plus skewed, noisy, rotated,
+low-resolution, blank, mixed-size,
+and mixed digital/scanned inputs. This is a regression floor, not a customer reliability
+claim. To measure real documents without committing customer data, provide a private
+corpus manifest as described in `evals/packet_reliability/README.md`. `make packet-eval`
+also refreshes the reviewable baseline in `reports/packet-reliability.md` and its JSON
+counterpart.
 
 Discover supported operations and parameter schemas:
 
@@ -544,7 +604,7 @@ make db-upgrade
 Run the full local Python checks after installing dependencies:
 
 ```bash
-python -m ruff check app tests worker
+python -m ruff check agentp_client app evals migrations tests worker
 python -m pytest
 ```
 

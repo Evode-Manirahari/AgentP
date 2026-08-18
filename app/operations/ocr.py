@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 from app.operations.base import KnownOperationError, OperationOutput, OperationResult
@@ -23,8 +25,17 @@ def ocr_pdf(
             details={"language": language},
         )
 
+    if importlib.util.find_spec("ocrmypdf") is None:
+        raise KnownOperationError(
+            "DEPENDENCY_MISSING",
+            "ocrmypdf is not installed in the worker environment.",
+            retryable=True,
+        )
+
     input_pages = count_pdf_pages(input_path)
     command = [
+        sys.executable,
+        "-m",
         "ocrmypdf",
         "--output-type",
         "pdf",
@@ -50,7 +61,7 @@ def ocr_pdf(
     except FileNotFoundError as exc:
         raise KnownOperationError(
             "DEPENDENCY_MISSING",
-            "ocrmypdf is not installed in the worker image.",
+            "The Python executable used to run ocrmypdf is unavailable.",
             retryable=True,
         ) from exc
     except subprocess.TimeoutExpired as exc:
@@ -84,4 +95,3 @@ def ocr_pdf(
         ],
         metadata={"input_pages": input_pages, "language": language, "deskew": deskew},
     )
-
