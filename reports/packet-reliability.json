@@ -1,0 +1,2328 @@
+{
+  "generated_at": "2026-08-18T21:35:01.775771+00:00",
+  "cases": {
+    "total": 20,
+    "attempted": 20,
+    "passed": 20,
+    "failed": 0,
+    "errored": 0,
+    "skipped": 0,
+    "skip_reason": null
+  },
+  "rates": {
+    "packet_produced": 1.0,
+    "output_validated": 1.0,
+    "ordering_correct": 1.0,
+    "pages_conserved": 1.0,
+    "all_checks_passed": 1.0,
+    "loss_reported": 1.0
+  },
+  "text_recall": {
+    "cases_measured": 19,
+    "mean": 0.9035087719298246,
+    "median": 1.0,
+    "min": 0.3333333333333333
+  },
+  "scanned_detection": {
+    "true_positive": 11,
+    "false_positive": 0,
+    "true_negative": 36,
+    "false_negative": 0,
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "failure_taxonomy": [],
+  "cases_detail": [
+    {
+      "case_id": "clean_digital_pair",
+      "description": "Two clean digital PDFs, submitted in the intended order.",
+      "tags": [
+        "baseline",
+        "digital"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.177,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 5,
+            "declared_input_pages": 5,
+            "packet_pages": 5
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 5,
+                "actual_pages": 5,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 4,
+            "recovered_token_count": 4,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "digital_many_inputs",
+      "description": "Five digital documents of varying length in one packet.",
+      "tags": [
+        "digital",
+        "multi-input"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.132,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 16,
+            "declared_input_pages": 16,
+            "packet_pages": 16
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "actual_sequence": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 16,
+                "actual_pages": 16,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 5,
+                "reported_inputs": 5,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5
+                ],
+                "reported_sequence": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 5,
+            "recovered_token_count": 5,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "filename_reorder",
+      "description": "Documents submitted out of order, reordered by filename.",
+      "tags": [
+        "ordering"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.064,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 4,
+            "declared_input_pages": 4,
+            "packet_pages": 4
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              2,
+              3,
+              1
+            ],
+            "actual_sequence": [
+              2,
+              3,
+              1
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 4,
+                "actual_pages": 4,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 3,
+                "reported_inputs": 3,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  2,
+                  3,
+                  1
+                ],
+                "reported_sequence": [
+                  2,
+                  3,
+                  1
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "filename_reorder_mixed_case",
+      "description": "Filename ordering must be case-insensitive and stable.",
+      "tags": [
+        "ordering"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.075,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 3,
+            "declared_input_pages": 3,
+            "packet_pages": 3
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              2,
+              1,
+              3
+            ],
+            "actual_sequence": [
+              2,
+              1,
+              3
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 3,
+                "actual_pages": 3,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 3,
+                "reported_inputs": 3,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  2,
+                  1,
+                  3
+                ],
+                "reported_sequence": [
+                  2,
+                  1,
+                  3
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "semantic_manifest_reorder",
+      "description": "Documents arrive in arbitrary order and are organized by caller-supplied semantic labels, with repeatable sections kept stable.",
+      "tags": [
+        "ordering",
+        "manifest"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.108,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 8,
+            "declared_input_pages": 8,
+            "packet_pages": 8
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              3,
+              2,
+              1,
+              4
+            ],
+            "actual_sequence": [
+              3,
+              2,
+              1,
+              4
+            ]
+          }
+        },
+        {
+          "name": "manifest_contract",
+          "passed": true,
+          "detail": {
+            "expected_labels": [
+              "statement",
+              "identity",
+              "application",
+              "statement"
+            ],
+            "actual_labels": [
+              "statement",
+              "identity",
+              "application",
+              "statement"
+            ],
+            "expected_sections": [
+              "application",
+              "identity",
+              "statement"
+            ],
+            "actual_sections": [
+              "application",
+              "identity",
+              "statement"
+            ],
+            "every_section_satisfied": true
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 8,
+                "actual_pages": 8,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 4,
+                "reported_inputs": 4,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  3,
+                  2,
+                  1,
+                  4
+                ],
+                "reported_sequence": [
+                  3,
+                  2,
+                  1,
+                  4
+                ],
+                "passed": true
+              },
+              "packet_manifest": {
+                "sections": [
+                  {
+                    "label": "application",
+                    "min_count": 1,
+                    "max_count": 1,
+                    "actual_count": 1,
+                    "satisfied": true
+                  },
+                  {
+                    "label": "identity",
+                    "min_count": 1,
+                    "max_count": 2,
+                    "actual_count": 1,
+                    "satisfied": true
+                  },
+                  {
+                    "label": "statement",
+                    "min_count": 1,
+                    "max_count": null,
+                    "actual_count": 2,
+                    "satisfied": true
+                  }
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 4,
+            "recovered_token_count": 4,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "mixed_page_sizes",
+      "description": "Letter, A4, and legal pages merged into one packet.",
+      "tags": [
+        "geometry"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.068,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 5,
+            "declared_input_pages": 5,
+            "packet_pages": 5
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2,
+              3
+            ],
+            "actual_sequence": [
+              1,
+              2,
+              3
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 5,
+                "actual_pages": 5,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 3,
+                "reported_inputs": 3,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2,
+                  3
+                ],
+                "reported_sequence": [
+                  1,
+                  2,
+                  3
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "rotated_digital_pages",
+      "description": "Digital pages rotated 90 and 270 degrees.",
+      "tags": [
+        "geometry",
+        "rotation"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.073,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 4,
+            "declared_input_pages": 4,
+            "packet_pages": 4
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2,
+              3
+            ],
+            "actual_sequence": [
+              1,
+              2,
+              3
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 4,
+                "actual_pages": 4,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 3,
+                "reported_inputs": 3,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2,
+                  3
+                ],
+                "reported_sequence": [
+                  1,
+                  2,
+                  3
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "large_packet",
+      "description": "A 40-page packet, to stress page conservation through the merge.",
+      "tags": [
+        "scale"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.209,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 40,
+            "declared_input_pages": 40,
+            "packet_pages": 40
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 40,
+                "actual_pages": 40,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 2,
+            "recovered_token_count": 2,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "borderline_text_density",
+      "description": "Sparse but genuinely digital text, near the scanned-detection threshold of 40 characters per page.",
+      "tags": [
+        "detection",
+        "threshold"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.059,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 4,
+            "declared_input_pages": 4,
+            "packet_pages": 4
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [],
+            "detected_scanned": []
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 4,
+                "actual_pages": 4,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 4,
+            "recovered_token_count": 4,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "single_scanned_input",
+      "description": "One scanned document alongside a digital one; OCR should hit only it.",
+      "tags": [
+        "ocr"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 2.24,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 4,
+            "recovered_token_count": 4,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "all_scanned_inputs",
+      "description": "An entirely scanned packet, the common paper-office case.",
+      "tags": [
+        "ocr"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 4.683,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 3,
+            "declared_input_pages": 3,
+            "packet_pages": 3
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              1,
+              2
+            ],
+            "detected_scanned": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 3,
+                "actual_pages": 3,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 4,
+            "recovered_token_count": 4,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "skewed_scan",
+      "description": "A scan fed through the feeder crooked; deskew should recover it.",
+      "tags": [
+        "ocr",
+        "skew"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 2.583,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "noisy_scan",
+      "description": "A speckled photocopy, the usual cause of OCR garbage.",
+      "tags": [
+        "ocr",
+        "noise"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 2.351,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "low_resolution_scan",
+      "description": "A 72 dpi scan, below what OCR reliably reads.",
+      "tags": [
+        "ocr",
+        "resolution"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 1.699,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 2,
+            "recovered_token_count": 2,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "rotated_scan",
+      "description": "A scan fed in sideways, then OCRed.",
+      "tags": [
+        "ocr",
+        "rotation"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 2.51,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [],
+            "actual": []
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 3,
+            "recovered_token_count": 3,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "blank_pages",
+      "description": "Separator sheets with no content. OCR cannot add text, so the packet should still be produced and the emptiness reported rather than silently passed.",
+      "tags": [
+        "ocr",
+        "warnings",
+        "edge"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 0.906,
+      "text_recall": 1.0,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 3,
+            "declared_input_pages": 3,
+            "packet_pages": 3
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "actual": [
+              "LOW_TEXT_AFTER_OCR"
+            ]
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 3,
+                "actual_pages": 3,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "expected_token_count": 1,
+            "recovered_token_count": 1,
+            "missing_tokens": []
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 1.0,
+            "warning_codes": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "missing_tokens": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heavy_speckle_photocopy",
+      "description": "A heavily speckled photocopy at 5% noise. OCR cannot read it; the packet must come back flagged rather than quietly unsearchable.",
+      "tags": [
+        "ocr",
+        "noise",
+        "degraded"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 2.924,
+      "text_recall": 0.3333333333333333,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "actual": [
+              "LOW_TEXT_AFTER_OCR"
+            ]
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 0.3333333333333333,
+            "expected_token_count": 3,
+            "recovered_token_count": 1,
+            "missing_tokens": [
+              "MERIDIAN",
+              "POL-48213"
+            ],
+            "tolerated": true
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 0.3333333333333333,
+            "warning_codes": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "missing_tokens": [
+              "MERIDIAN",
+              "POL-48213"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "severe_skew",
+      "description": "A page fed in at 25 degrees, well past what deskew recovers.",
+      "tags": [
+        "ocr",
+        "skew",
+        "degraded"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 2.673,
+      "text_recall": 0.3333333333333333,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "actual": [
+              "LOW_TEXT_AFTER_OCR"
+            ]
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 0.3333333333333333,
+            "expected_token_count": 3,
+            "recovered_token_count": 1,
+            "missing_tokens": [
+              "ACCT-99120",
+              "HARBOUR"
+            ],
+            "tolerated": true
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 0.3333333333333333,
+            "warning_codes": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "missing_tokens": [
+              "ACCT-99120",
+              "HARBOUR"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "fax_resolution_small_print",
+      "description": "6pt print at fax resolution, below what OCR resolves.",
+      "tags": [
+        "ocr",
+        "resolution",
+        "degraded"
+      ],
+      "status": "passed",
+      "error_code": null,
+      "error_message": null,
+      "skip_reason": null,
+      "duration_seconds": 1.59,
+      "text_recall": 0.5,
+      "checks": [
+        {
+          "name": "page_conservation",
+          "passed": true,
+          "detail": {
+            "expected_pages": 2,
+            "declared_input_pages": 2,
+            "packet_pages": 2
+          }
+        },
+        {
+          "name": "ordering",
+          "passed": true,
+          "detail": {
+            "expected_sequence": [
+              1,
+              2
+            ],
+            "actual_sequence": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "name": "scanned_detection",
+          "passed": true,
+          "detail": {
+            "misclassified": []
+          }
+        },
+        {
+          "name": "ocr_application",
+          "passed": true,
+          "detail": {
+            "ocr_applied_to": [
+              2
+            ],
+            "detected_scanned": [
+              2
+            ]
+          }
+        },
+        {
+          "name": "warnings",
+          "passed": true,
+          "detail": {
+            "expected": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "actual": [
+              "LOW_TEXT_AFTER_OCR"
+            ]
+          }
+        },
+        {
+          "name": "output_validates",
+          "passed": true,
+          "detail": {
+            "assertions": {
+              "packet_page_count": {
+                "expected_pages": 2,
+                "actual_pages": 2,
+                "passed": true
+              },
+              "audit_report_complete": {
+                "expected_inputs": 2,
+                "reported_inputs": 2,
+                "passed": true
+              },
+              "packet_sequence": {
+                "expected_sequence": [
+                  1,
+                  2
+                ],
+                "reported_sequence": [
+                  1,
+                  2
+                ],
+                "passed": true
+              }
+            }
+          }
+        },
+        {
+          "name": "text_recall",
+          "passed": true,
+          "detail": {
+            "recall": 0.5,
+            "expected_token_count": 2,
+            "recovered_token_count": 1,
+            "missing_tokens": [
+              "ZEPHYR"
+            ],
+            "tolerated": true
+          }
+        },
+        {
+          "name": "no_silent_loss",
+          "passed": true,
+          "detail": {
+            "recall": 0.5,
+            "warning_codes": [
+              "LOW_TEXT_AFTER_OCR"
+            ],
+            "missing_tokens": [
+              "ZEPHYR"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "unreadable_resolution",
+      "description": "A 50 dpi scan, which the OCR stage rejects outright. Refusing the job is the correct answer; returning a packet that claims to be searchable is not.",
+      "tags": [
+        "ocr",
+        "resolution",
+        "degraded",
+        "error-path"
+      ],
+      "status": "passed",
+      "error_code": "OCR_FAILED",
+      "error_message": "OCR processing failed.",
+      "skip_reason": null,
+      "duration_seconds": 1.032,
+      "text_recall": null,
+      "checks": [
+        {
+          "name": "expected_refusal",
+          "passed": true,
+          "detail": {
+            "expected": "OCR_FAILED",
+            "actual": "OCR_FAILED"
+          }
+        }
+      ]
+    }
+  ]
+}

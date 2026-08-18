@@ -36,10 +36,13 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint
-        run: python -m ruff check app tests worker migrations
+        run: python -m ruff check agentp_client app evals tests worker migrations
 
       - name: Check migrations
         run: python -m alembic upgrade head --sql > /tmp/agentp-schema.sql
 
       - name: Test
         run: python -m pytest
+
+      - name: Packet reliability regression
+        run: python -m evals.packet_reliability --fail-under 0.95
