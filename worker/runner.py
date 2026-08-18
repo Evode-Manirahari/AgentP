@@ -94,12 +94,15 @@ def process_job(job_id: str) -> None:
             )
             session.commit()
             workspace_id = job.workspace_id
+            operation = job.operation
+            parameters = dict(job.parameters)
 
         with tempfile.TemporaryDirectory(prefix=f"{settings.temp_prefix}{job_id}-") as tmp_dir:
             workspace = Path(tmp_dir)
             input_paths: list[Path] = []
             input_names: list[str] = []
             input_validations: list[dict] = []
+            input_labels = parameters.get("input_labels")
 
             for job_input in _load_inputs(job_id, workspace_id=workspace_id):
                 with SessionLocal() as session:
@@ -119,14 +122,15 @@ def process_job(job_id: str) -> None:
                     validation = validate_input_pdf(path, settings=settings)
                     input_paths.append(path)
                     input_names.append(document.original_filename)
-                    input_validations.append(
-                        {
-                            "file_id": document.id,
-                            "position": job_input.position,
-                            "page_count": validation["page_count"],
-                            "qpdf_check": validation["qpdf_check"]["status"],
-                        }
-                    )
+                    input_validation = {
+                        "file_id": document.id,
+                        "position": job_input.position,
+                        "page_count": validation["page_count"],
+                        "qpdf_check": validation["qpdf_check"]["status"],
+                    }
+                    if isinstance(input_labels, list) and job_input.position < len(input_labels):
+                        input_validation["label"] = input_labels[job_input.position]
+                    input_validations.append(input_validation)
 
             with SessionLocal() as session:
                 job = session.get(Job, job_id)
@@ -142,9 +146,9 @@ def process_job(job_id: str) -> None:
                 session.commit()
 
             result = execute_operation(
-                operation=job.operation,
+                operation=operation,
                 input_paths=input_paths,
-                parameters=job.parameters,
+                parameters=parameters,
                 workspace=workspace,
                 settings=settings,
                 input_names=input_names,
@@ -166,7 +170,7 @@ def process_job(job_id: str) -> None:
                 session.commit()
 
             validation = validate_operation_result(
-                operation=job.operation,
+                operation=operation,
                 input_paths=input_paths,
                 result=result,
                 settings=settings,

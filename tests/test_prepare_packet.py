@@ -142,7 +142,63 @@ def test_prepare_packet_rejects_an_unknown_order(tmp_path: Path) -> None:
         prepare_packet(inputs, tmp_path, order="by_vibes")
 
     assert exc.value.code == "INVALID_PACKET_ORDER"
-    assert exc.value.details["allowed"] == ["as_provided", "filename"]
+    assert exc.value.details["allowed"] == ["as_provided", "filename", "manifest"]
+
+
+def test_prepare_packet_orders_and_audits_a_semantic_manifest(tmp_path: Path) -> None:
+    first = tmp_path / "statement-1.pdf"
+    second = tmp_path / "identity.pdf"
+    third = tmp_path / "application.pdf"
+    fourth = tmp_path / "statement-2.pdf"
+    for path in [first, second, third, fourth]:
+        _write_pdf(path, TEXT_BODY)
+
+    manifest = [
+        {"label": "application", "min_count": 1, "max_count": 1},
+        {"label": "identity", "min_count": 1, "max_count": 2},
+        {"label": "statement", "min_count": 1},
+    ]
+    result = prepare_packet(
+        [first, second, third, fourth],
+        tmp_path,
+        input_names=[path.name for path in [first, second, third, fourth]],
+        order="manifest",
+        input_labels=["statement", "identity", "application", "statement"],
+        manifest=manifest,
+    )
+    report = _read_report(result)
+
+    assert result.metadata["sequence"] == [3, 2, 1, 4]
+    assert report["sequence"] == [3, 2, 1, 4]
+    assert [entry["label"] for entry in report["inputs"]] == [
+        "statement",
+        "identity",
+        "application",
+        "statement",
+    ]
+    assert all(section["satisfied"] for section in report["manifest_validation"])
+    assert report["parameters"]["manifest"] == result.metadata["manifest"]
+    assert [section["label"] for section in result.metadata["manifest"]] == [
+        "application",
+        "identity",
+        "statement",
+    ]
+
+
+def test_prepare_packet_rejects_manifest_settings_without_manifest_order(
+    tmp_path: Path,
+) -> None:
+    inputs = _packet_inputs(tmp_path)
+
+    with pytest.raises(KnownOperationError) as exc:
+        prepare_packet(
+            inputs,
+            tmp_path,
+            input_labels=["application", "identity"],
+            manifest=[{"label": "application"}, {"label": "identity"}],
+        )
+
+    assert exc.value.code == "PACKET_MANIFEST_NOT_ENABLED"
 
 
 def test_prepare_packet_ocrs_scanned_inputs_and_warns_on_low_text(
@@ -238,3 +294,51 @@ def test_prepare_packet_validation_rejects_an_invalid_audit_report(tmp_path: Pat
         )
 
     assert exc.value.code == "AUDIT_REPORT_JSON_INVALID"
+
+
+@requires_qpdf
+def test_prepare_packet_validation_proves_manifest_and_sequence(tmp_path: Path) -> None:
+    inputs = _packet_inputs(tmp_path)
+    result = prepare_packet(
+        inputs,
+        tmp_path,
+        input_names=["identity.pdf", "application.pdf"],
+        order="manifest",
+        input_labels=["identity", "application"],
+        manifest=[{"label": "application"}, {"label": "identity"}],
+    )
+
+    validation = validate_operation_result(
+        operation="prepare_packet",
+        input_paths=inputs,
+        result=result,
+        settings=Settings(),
+    )
+
+    assert validation["assertions"]["packet_sequence"]["passed"] is True
+    assert validation["assertions"]["packet_manifest"]["passed"] is True
+
+
+@requires_qpdf
+def test_prepare_packet_validation_rejects_tampered_manifest_evidence(tmp_path: Path) -> None:
+    inputs = _packet_inputs(tmp_path)
+    result = prepare_packet(
+        inputs,
+        tmp_path,
+        order="manifest",
+        input_labels=["identity", "application"],
+        manifest=[{"label": "application"}, {"label": "identity"}],
+    )
+    report = _read_report(result)
+    report["manifest_validation"][0]["satisfied"] = False
+    result.outputs[1].path.write_text(json.dumps(report), encoding="utf-8")
+
+    with pytest.raises(KnownOperationError) as exc:
+        validate_operation_result(
+            operation="prepare_packet",
+            input_paths=inputs,
+            result=result,
+            settings=Settings(),
+        )
+
+    assert exc.value.code == "PACKET_MANIFEST_VALIDATION_FAILED"

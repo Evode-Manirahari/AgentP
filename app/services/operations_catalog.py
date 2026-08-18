@@ -47,8 +47,31 @@ OPERATION_CATALOG: list[dict[str, Any]] = [
                 "type": "string",
                 "required": False,
                 "default": "as_provided",
-                "allowed_values": ["as_provided", "filename"],
-                "description": "How to order documents before merging.",
+                "allowed_values": ["as_provided", "filename", "manifest"],
+                "description": (
+                    "How to order documents before merging. Manifest order uses each REST "
+                    "input label or the MCP input_labels argument."
+                ),
+            },
+            {
+                "name": "manifest",
+                "type": "array<object>",
+                "required": False,
+                "default": None,
+                "description": (
+                    "Ordered section definitions with label, min_count (default 1), and "
+                    "optional max_count. Required when order is manifest."
+                ),
+            },
+            {
+                "name": "allow_unlisted",
+                "type": "boolean",
+                "required": False,
+                "default": False,
+                "description": (
+                    "When using manifest order, append labels absent from the manifest after "
+                    "declared sections while preserving their input order."
+                ),
             },
             {
                 "name": "language",

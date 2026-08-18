@@ -52,14 +52,27 @@ def _submit_job(
     file_ids: list[str],
     parameters: dict[str, Any],
     idempotency_key: str | None,
+    input_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     context = _mcp_auth_context()
     if context is None:
         return _mcp_auth_error()
     try:
+        if input_labels is not None and len(input_labels) != len(file_ids):
+            raise KnownOperationError(
+                "INVALID_PACKET_LABELS",
+                "Manifest ordering requires exactly one label for every input document.",
+                details={"input_count": len(file_ids), "label_count": len(input_labels)},
+            )
         request = JobCreate(
             operation=operation,  # type: ignore[arg-type]
-            inputs=[JobInputRef(file_id=file_id) for file_id in file_ids],
+            inputs=[
+                JobInputRef(
+                    file_id=file_id,
+                    label=input_labels[index] if input_labels is not None else None,
+                )
+                for index, file_id in enumerate(file_ids)
+            ],
             parameters=parameters,
         )
         with SessionLocal() as session:
@@ -201,18 +214,32 @@ def prepare_packet(
     order: str = "as_provided",
     language: str = "eng",
     deskew: bool = True,
+    input_labels: list[str] | None = None,
+    manifest: list[dict[str, Any]] | None = None,
+    allow_unlisted: bool = False,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Turn a collection of documents into one validated packet PDF plus an audit report.
 
-    Inspects every input, OCRs the scanned ones, orders them ("as_provided" or "filename"),
-    merges them, and verifies the packet contains every input page.
+    Inspects every input, OCRs the scanned ones, orders them ("as_provided", "filename",
+    or by a semantic manifest), merges them, and verifies the packet contains every page.
+    Manifest ordering requires one input_labels entry per file and a manifest section list.
     """
+    parameters: dict[str, Any] = {
+        "order": order,
+        "language": language,
+        "deskew": deskew,
+    }
+    if manifest is not None:
+        parameters["manifest"] = manifest
+    if allow_unlisted:
+        parameters["allow_unlisted"] = True
     return _submit_job(
         operation="prepare_packet",
         file_ids=file_ids,
-        parameters={"order": order, "language": language, "deskew": deskew},
+        parameters=parameters,
         idempotency_key=idempotency_key,
+        input_labels=input_labels,
     )
 
 

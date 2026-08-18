@@ -45,4 +45,7 @@ def test_prepare_packet_catalog_documents_ordering_and_input_count() -> None:
     assert packet["input_count_min"] == 2
     assert packet["input_count_max"] is None
     assert order["default"] == "as_provided"
-    assert order["allowed_values"] == ["as_provided", "filename"]
+    assert order["allowed_values"] == ["as_provided", "filename", "manifest"]
+    parameters = {parameter["name"]: parameter for parameter in packet["parameters"]}
+    assert parameters["manifest"]["type"] == "array<object>"
+    assert parameters["allow_unlisted"]["default"] is False
