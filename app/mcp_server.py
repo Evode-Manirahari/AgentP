@@ -20,6 +20,7 @@ from app.services.jobs import (
 )
 from app.services.operations_catalog import list_operation_specs
 from app.services.storage import StorageService
+from app.services.usage import get_workspace_usage
 
 mcp = MCPServer("AgentP Document Execution")
 
@@ -169,6 +170,21 @@ def list_files(
             return response.model_dump(mode="json")
     except KnownOperationError as exc:
         return exc.to_dict()
+
+
+@mcp.tool()
+def get_usage() -> dict[str, Any]:
+    """Get this workspace's storage, document, active-job, and hourly-job usage."""
+    context = _mcp_auth_context()
+    if context is None:
+        return _mcp_auth_error()
+    with SessionLocal() as session:
+        response = get_workspace_usage(
+            session,
+            workspace_id=context.workspace_id,
+            settings=get_settings(),
+        )
+        return response.model_dump(mode="json")
 
 
 @mcp.tool(name="cancel_job")

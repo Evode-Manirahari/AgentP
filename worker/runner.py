@@ -14,6 +14,7 @@ from app.operations.executor import execute_operation
 from app.operations.pdf_utils import sha256_path
 from app.services.audit import add_audit_event
 from app.services.storage import StorageService
+from app.services.usage import enforce_document_quota
 from app.services.validation import validate_input_pdf, validate_operation_result
 from app.services.webhooks import deliver_webhook_delivery, safe_queue_terminal_job_webhooks
 
@@ -180,6 +181,14 @@ def process_job(job_id: str) -> None:
                 job = session.get(Job, job_id)
                 if job is None:
                     raise KnownOperationError("JOB_NOT_FOUND", "The job no longer exists.")
+
+                enforce_document_quota(
+                    session,
+                    workspace_id=job.workspace_id,
+                    incoming_bytes=sum(output.path.stat().st_size for output in result.outputs),
+                    incoming_documents=len(result.outputs),
+                    settings=settings,
+                )
 
                 output_file_ids: list[str] = []
                 for position, output in enumerate(result.outputs):

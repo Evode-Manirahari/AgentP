@@ -38,6 +38,7 @@ from app.schemas import (
 from app.services.audit import add_audit_event
 from app.services.documents import is_deleted, lock_document
 from app.services.storage import StorageService
+from app.services.usage import enforce_job_quota
 from app.services.webhooks import safe_queue_terminal_job_webhooks
 from worker.queue import enqueue_job
 
@@ -322,6 +323,25 @@ def create_job(
     active_settings = settings or get_settings()
     idempotency_fingerprint = job_request_fingerprint(request) if idempotency_key else None
 
+    if idempotency_key:
+        existing = _idempotent_match(
+            session,
+            workspace_id=workspace_id,
+            idempotency_key=idempotency_key,
+            fingerprint=idempotency_fingerprint,
+        )
+        if existing is not None:
+            return _resume_existing_job(session, existing, settings=active_settings)
+
+    enforce_job_quota(
+        session,
+        workspace_id=workspace_id,
+        settings=active_settings,
+    )
+
+    # The workspace lock closes the idempotency race: a concurrent creator may have
+    # committed while this request was waiting for admission. Recheck before consuming a
+    # quota slot or taking document locks.
     if idempotency_key:
         existing = _idempotent_match(
             session,

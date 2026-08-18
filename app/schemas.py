@@ -229,6 +229,25 @@ class WorkspaceResponse(BaseModel):
     created_at: datetime
 
 
+class UsageLimitResponse(BaseModel):
+    used: int
+    limit: int
+    remaining: int
+    utilization: float
+    exhausted: bool
+
+
+class WorkspaceUsageResponse(BaseModel):
+    workspace_id: str
+    generated_at: datetime
+    storage_bytes: UsageLimitResponse
+    documents: UsageLimitResponse
+    active_jobs: UsageLimitResponse
+    jobs_last_hour: UsageLimitResponse
+    job_status_last_24_hours: dict[str, int]
+    terminal_failure_rate_last_24_hours: float | None = None
+
+
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
