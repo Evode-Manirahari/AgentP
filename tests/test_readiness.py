@@ -60,8 +60,28 @@ class HealthyStorage:
         return None
 
 
+class HealthyQueue:
+    def __init__(self, name: str, *, connection: object) -> None:
+        self.name = name
+        self.connection = connection
+
+
+class HealthyWorker:
+    @staticmethod
+    def count(*, connection: object, queue: object) -> int:
+        return 1
+
+
+class MissingWorker:
+    @staticmethod
+    def count(*, connection: object, queue: object) -> int:
+        return 0
+
+
 def test_ready_returns_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "Redis", HealthyRedis)
+    monkeypatch.setattr(main, "Queue", HealthyQueue)
+    monkeypatch.setattr(main, "Worker", HealthyWorker)
     monkeypatch.setattr(main, "StorageService", HealthyStorage)
 
     response = main.ready(session=FakeSession(), settings=config.Settings())
@@ -70,12 +90,15 @@ def test_ready_returns_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response["checks"] == {
         "database": {"status": "ok"},
         "redis": {"status": "ok"},
+        "worker": {"status": "ok"},
         "storage": {"status": "ok"},
     }
 
 
 def test_ready_returns_503_when_a_dependency_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "Redis", FailingRedis)
+    monkeypatch.setattr(main, "Queue", HealthyQueue)
+    monkeypatch.setattr(main, "Worker", HealthyWorker)
     monkeypatch.setattr(main, "StorageService", HealthyStorage)
 
     with pytest.raises(fastapi.HTTPException) as exc:
@@ -84,3 +107,19 @@ def test_ready_returns_503_when_a_dependency_fails(monkeypatch: pytest.MonkeyPat
     assert exc.value.status_code == 503
     assert exc.value.detail["error"]["code"] == "SERVICE_NOT_READY"
     assert exc.value.detail["error"]["details"]["checks"]["redis"]["status"] == "error"
+
+
+def test_ready_returns_503_when_no_worker_consumes_the_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main, "Redis", HealthyRedis)
+    monkeypatch.setattr(main, "Queue", HealthyQueue)
+    monkeypatch.setattr(main, "Worker", MissingWorker)
+    monkeypatch.setattr(main, "StorageService", HealthyStorage)
+
+    with pytest.raises(fastapi.HTTPException) as exc:
+        main.ready(session=FakeSession(), settings=config.Settings())
+
+    checks = exc.value.detail["error"]["details"]["checks"]
+    assert checks["worker"]["status"] == "error"
+    assert "no live RQ workers" in checks["worker"]["message"]

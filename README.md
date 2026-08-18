@@ -18,6 +18,7 @@ The first product path is intentionally narrow:
 7. Return short-lived download URLs, validation details, and audit events.
 8. Deliver signed completion webhooks with durable delivery history.
 9. Isolate every file, job, webhook, and object-storage key by workspace.
+10. Enforce workspace storage, document, concurrency, and hourly-job limits.
 
 MCP tools expose the same job service as the REST API. There is no separate AI chat layer.
 
@@ -59,7 +60,8 @@ Services:
 System endpoints:
 
 - `GET /health` reports that the API process is alive.
-- `GET /ready` checks Postgres, Redis, and object storage connectivity.
+- `GET /ready` checks Postgres, Redis, object storage, and that at least one live RQ worker
+  is consuming the configured PDF queue.
 
 Local bootstrap API key:
 
@@ -136,6 +138,40 @@ python -m app.provision revoke-key ws_... key_...
 
 CLI create and rotate commands also print a token only once. Treat their JSON output as a
 secret and move it directly into a secret manager.
+
+## Usage and Admission Limits
+
+Every workspace has transaction-safe admission limits. The defaults are 10 GiB of live
+documents, 10,000 live document records, 25 active jobs, and 1,000 new jobs in a rolling
+hour. Uploaded inputs and generated outputs both count; deleted document records keep their
+provenance but no longer consume document or byte capacity.
+
+```bash
+curl -sS http://localhost:8000/v1/usage \
+  -H "X-API-Key: $AGENTP_API_KEY"
+```
+
+The response reports `used`, `limit`, `remaining`, `utilization`, and `exhausted` for
+storage bytes, documents, active jobs, and jobs in the last hour. It also includes job
+outcomes and the terminal failure rate for the last 24 hours. The MCP `get_usage()` tool
+returns the same workspace-scoped model.
+
+Configure the limits per deployment:
+
+```text
+AGENTPDF_WORKSPACE_STORAGE_LIMIT_BYTES=10737418240
+AGENTPDF_WORKSPACE_DOCUMENT_LIMIT=10000
+AGENTPDF_WORKSPACE_ACTIVE_JOB_LIMIT=25
+AGENTPDF_WORKSPACE_JOBS_PER_HOUR_LIMIT=1000
+```
+
+Capacity failures use stable codes:
+
+- `WORKSPACE_STORAGE_LIMIT_EXCEEDED` and `WORKSPACE_DOCUMENT_LIMIT_EXCEEDED` require
+  deleting stored files or raising capacity.
+- `WORKSPACE_ACTIVE_JOB_LIMIT_EXCEEDED` is retryable after a job finishes or a queued job
+  is canceled.
+- `WORKSPACE_JOB_RATE_LIMIT_EXCEEDED` is retryable after the rolling hour clears.
 
 ## REST Demo
 
@@ -438,6 +474,7 @@ The MCP server exposes strongly typed tools:
 - `list_operations()`
 - `list_files(status, limit, offset)`
 - `list_jobs(status, limit, offset)`
+- `get_usage()`
 - `cancel_job(job_id)`
 - `merge_pdfs(file_ids, ocr_if_needed, language, deskew, idempotency_key)`
 - `prepare_packet(file_ids, order, language, deskew, input_labels, manifest,
@@ -472,6 +509,7 @@ Implemented in v0:
 - Platform-administrator capability required to create workspaces.
 - Upload size limit.
 - Page count limit.
+- Transaction-safe workspace storage, document, active-job, and hourly-job limits.
 - Immutable input and output storage keys.
 - Temporary per-job workspace cleanup.
 - Allowlisted operations and parameters.

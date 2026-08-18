@@ -50,6 +50,11 @@ def create_job_endpoint(
         )
         if exc.code == "IDEMPOTENCY_KEY_CONFLICT":
             status_code = status.HTTP_409_CONFLICT
+        if exc.code in {
+            "WORKSPACE_ACTIVE_JOB_LIMIT_EXCEEDED",
+            "WORKSPACE_JOB_RATE_LIMIT_EXCEEDED",
+        }:
+            status_code = status.HTTP_429_TOO_MANY_REQUESTS
         raise operation_http_error(
             exc,
             status_code=status_code,
