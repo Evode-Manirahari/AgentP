@@ -73,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Use in CI once a baseline is established."
         ),
     )
+    parser.add_argument(
+        "--allow-skips",
+        action="store_true",
+        help=(
+            "Let --fail-under pass even when cases were skipped. Without this, a skipped "
+            "case fails the gate, because an unmeasured case is not a passing one."
+        ),
+    )
     return parser
 
 
@@ -136,8 +144,27 @@ def main(argv: list[str] | None = None) -> int:
     if result.errored:
         return 1
     if args.fail_under is not None:
+        # A gate that only inspects the rate passes whenever nothing was measured: skipped
+        # cases are excluded from the denominator, and an all-skipped run has no rate at
+        # all. Missing OCR binaries silently skip every scanned case, so that is the
+        # realistic way this gate would have gone green over zero OCR coverage.
+        if result.skipped and not args.allow_skips:
+            print(
+                f"\n{len(result.skipped)} case(s) were skipped and therefore not measured: "
+                f"{result.skipped_reason}. "
+                "Restore the toolchain, or pass --allow-skips to accept the gap.",
+                file=sys.stderr,
+            )
+            return 1
+
         rate = summary["rates"]["all_checks_passed"]
-        if rate is not None and rate < args.fail_under:
+        if rate is None:
+            print(
+                "\nno cases were measured, so --fail-under cannot be satisfied",
+                file=sys.stderr,
+            )
+            return 1
+        if rate < args.fail_under:
             print(
                 f"\nall-checks-passed rate {rate:.3f} is below --fail-under {args.fail_under}",
                 file=sys.stderr,

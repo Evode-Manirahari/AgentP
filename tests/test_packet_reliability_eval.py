@@ -343,6 +343,83 @@ def test_the_console_report_names_the_skip_reason() -> None:
     assert "no tesseract" in rendered
 
 
+def _gate_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+    result: SuiteResult,
+    argv: list[str],
+) -> int:
+    from evals.packet_reliability import __main__ as entrypoint
+
+    monkeypatch.setattr(entrypoint, "run_suite", lambda *args, **kwargs: result)
+    return entrypoint.main(argv)
+
+
+def test_the_gate_fails_when_cases_were_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A skipped case is unmeasured, not passing.
+
+    Skipped cases are excluded from the rate's denominator, so a run that skipped every
+    scanned case still reports a perfect rate over the digital ones. Missing OCR binaries
+    skip those cases automatically, which is exactly how CI would go green over zero OCR
+    coverage.
+    """
+    result = SuiteResult(
+        outcomes=[
+            _outcome("passed", checks=[Check(name="output_validates", passed=True)]),
+            _outcome("skipped", skip_reason="no tesseract"),
+        ],
+        scanned_detection=LabelCounts(),
+        skipped_reason="no tesseract",
+    )
+
+    assert report_module.summarize(result)["rates"]["all_checks_passed"] == 1.0
+    assert _gate_exit_code(monkeypatch, result, ["--fail-under", "0.95"]) == 1
+
+
+def test_allow_skips_accepts_the_measurement_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = SuiteResult(
+        outcomes=[
+            _outcome("passed", checks=[Check(name="output_validates", passed=True)]),
+            _outcome("skipped", skip_reason="no tesseract"),
+        ],
+        scanned_detection=LabelCounts(),
+        skipped_reason="no tesseract",
+    )
+
+    assert _gate_exit_code(monkeypatch, result, ["--fail-under", "0.95", "--allow-skips"]) == 0
+
+
+def test_the_gate_fails_when_nothing_was_measured(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = SuiteResult(
+        outcomes=[_outcome("skipped", skip_reason="no tesseract")],
+        scanned_detection=LabelCounts(),
+        skipped_reason="no tesseract",
+    )
+
+    assert report_module.summarize(result)["rates"]["all_checks_passed"] is None
+    assert _gate_exit_code(monkeypatch, result, ["--fail-under", "0.95", "--allow-skips"]) == 1
+
+
+def test_the_gate_passes_a_fully_measured_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = SuiteResult(
+        outcomes=[_outcome("passed", checks=[Check(name="output_validates", passed=True)])],
+        scanned_detection=LabelCounts(),
+    )
+
+    assert _gate_exit_code(monkeypatch, result, ["--fail-under", "0.95"]) == 0
+
+
+def test_the_gate_still_fails_a_measured_regression(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = SuiteResult(
+        outcomes=[
+            _outcome("passed", checks=[Check(name="output_validates", passed=True)]),
+            _outcome("failed", checks=[Check(name="output_validates", passed=False)]),
+        ],
+        scanned_detection=LabelCounts(),
+    )
+
+    assert _gate_exit_code(monkeypatch, result, ["--fail-under", "0.95"]) == 1
+
+
 def test_explicitly_skipping_ocr_names_the_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
