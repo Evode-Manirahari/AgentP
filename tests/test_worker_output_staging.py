@@ -8,7 +8,7 @@ for _m in ["pydantic_settings", "sqlalchemy", "redis", "rq"]:
     pytest.importorskip(_m)
 
 from app.operations.base import OperationOutput  # noqa: E402
-from worker.runner import _stage_outputs  # noqa: E402
+from worker.runner import _discard_staged_outputs, _stage_outputs  # noqa: E402
 
 
 class RecordingStorage:
@@ -53,3 +53,53 @@ def test_staging_writes_every_output_and_describes_it(tmp_path: Path) -> None:
     assert staged[1]["size_bytes"] == report.stat().st_size
     assert len({item["sha256"] for item in staged}) == 2
     assert all(len(item["sha256"]) == 64 for item in staged)
+
+
+class FailingStorage(RecordingStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.deleted: list[str] = []
+
+    def delete_object(self, *, key: str) -> None:
+        raise RuntimeError("object storage is unreachable")
+
+
+class DeletingStorage(RecordingStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.deleted: list[str] = []
+
+    def delete_object(self, *, key: str) -> None:
+        self.deleted.append(key)
+
+
+def test_registered_outputs_are_never_discarded() -> None:
+    storage = DeletingStorage()
+
+    _discard_staged_outputs(
+        storage,
+        [{"storage_key": "k1"}, {"storage_key": "k2"}],
+        registered=True,
+    )
+
+    assert storage.deleted == [], "committed outputs must survive"
+
+
+def test_unregistered_outputs_are_discarded() -> None:
+    storage = DeletingStorage()
+
+    _discard_staged_outputs(
+        storage,
+        [{"storage_key": "k1"}, {"storage_key": "k2"}],
+        registered=False,
+    )
+
+    assert storage.deleted == ["k1", "k2"]
+
+
+def test_a_cleanup_failure_never_replaces_the_real_error() -> None:
+    _discard_staged_outputs(
+        FailingStorage(),
+        [{"storage_key": "k1"}],
+        registered=False,
+    )

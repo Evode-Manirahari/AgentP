@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from app.services.storage import StorageService
 from app.services.usage import enforce_document_quota
 from app.services.validation import validate_input_pdf, validate_operation_result
 from app.services.webhooks import deliver_webhook_delivery, safe_queue_terminal_job_webhooks
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_JOB_STATUSES = {
     JobStatus.SUCCEEDED.value,
@@ -104,9 +107,35 @@ def _stage_outputs(
     return staged
 
 
+def _discard_staged_outputs(
+    storage: StorageService,
+    staged: list[dict[str, Any]],
+    *,
+    registered: bool,
+) -> None:
+    """Drop staged objects when the job never registered them.
+
+    Staging writes bytes before the registration transaction, so a failure between the two
+    would leave objects that no document row points at, and the retention sweep only works
+    from document records. Best effort, and never raised: the job is already failing, and a
+    cleanup error must not replace the reason it failed.
+    """
+    if registered:
+        return
+    for item in staged:
+        try:
+            storage.delete_object(key=item["storage_key"])
+        except Exception:
+            logger.exception(
+                "Could not discard the orphaned storage object %s.", item["storage_key"]
+            )
+
+
 def process_job(job_id: str) -> None:
     settings = get_settings()
     storage = StorageService(settings)
+    staged: list[dict[str, Any]] = []
+    registered = False
 
     try:
         with SessionLocal() as session:
@@ -274,12 +303,14 @@ def process_job(job_id: str) -> None:
                     },
                 )
                 session.commit()
+                registered = True
                 safe_queue_terminal_job_webhooks(
                     job_id=job.id,
                     event_type=event_type,
                     settings=settings,
                 )
     except KnownOperationError as exc:
+        _discard_staged_outputs(storage, staged, registered=registered)
         _mark_failed(job_id, exc)
         raise
     except Exception as exc:
@@ -289,6 +320,7 @@ def process_job(job_id: str) -> None:
             details={"reason": str(exc)},
             retryable=True,
         )
+        _discard_staged_outputs(storage, staged, registered=registered)
         _mark_failed(job_id, error)
         raise
 
