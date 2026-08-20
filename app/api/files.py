@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import Annotated
@@ -13,7 +14,7 @@ from starlette.background import BackgroundTask
 from app.api.errors import operation_http_error
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import Document, DocumentStatus
+from app.models import Document, DocumentStatus, new_id
 from app.operations.base import KnownOperationError
 from app.operations.pdf_utils import sha256_path
 from app.schemas import (
@@ -27,6 +28,8 @@ from app.services.documents import delete_document, is_deleted, list_documents_f
 from app.services.storage import StorageService
 from app.services.usage import enforce_document_quota
 from app.services.validation import validate_input_pdf
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/files",
@@ -87,6 +90,22 @@ def _get_readable_document(
     return document
 
 
+def _discard_stored_object(storage: StorageService, key: str | None) -> None:
+    """Drop an object whose owning row was never committed.
+
+    Storing before reserving quota means a rejected upload can leave bytes behind with
+    nothing referencing them. Nothing sweeps an object that no document row points at, so
+    the compensating delete happens here. It is best effort: the upload already failed, and
+    reporting a cleanup failure instead of the real cause would hide it.
+    """
+    if key is None:
+        return
+    try:
+        storage.delete_object(key=key)
+    except Exception:
+        logger.exception("Could not discard the orphaned storage object %s.", key)
+
+
 @router.post("", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     file: Annotated[UploadFile, File(...)],
@@ -128,9 +147,25 @@ async def upload_file(
                 )
             tmp.write(chunk)
 
+    # The identifier is generated here rather than by the insert, so the object can be
+    # stored before any row lock is taken. Reserving quota locks the workspace row and holds
+    # it until this request commits; uploading underneath that lock would serialize every
+    # upload and job completion in the workspace behind an S3 round trip, and hold a pooled
+    # database connection for its duration.
+    document_id = new_id("file")
+    stored_key: str | None = None
+
     try:
         validation = validate_input_pdf(tmp_path, settings=settings)
         sha256 = sha256_path(tmp_path)
+        storage_key = storage.input_key(
+            workspace_id=context.workspace_id,
+            document_id=document_id,
+            filename=filename,
+        )
+        storage.upload_path(tmp_path, key=storage_key, content_type=validation["mime_type"])
+        stored_key = storage_key
+
         enforce_document_quota(
             session,
             workspace_id=context.workspace_id,
@@ -139,24 +174,16 @@ async def upload_file(
             settings=settings,
         )
         document = Document(
+            id=document_id,
             workspace_id=context.workspace_id,
             original_filename=filename,
             mime_type=validation["mime_type"],
             size_bytes=total_bytes,
             sha256=sha256,
-            storage_key="pending",
+            storage_key=storage_key,
             page_count=validation["page_count"],
             status=DocumentStatus.VALIDATED.value,
         )
-        session.add(document)
-        session.flush()
-        storage_key = storage.input_key(
-            workspace_id=context.workspace_id,
-            document_id=document.id,
-            filename=filename,
-        )
-        storage.upload_path(tmp_path, key=storage_key, content_type=validation["mime_type"])
-        document.storage_key = storage_key
         session.add(document)
         session.commit()
         return FileUploadResponse(
@@ -168,8 +195,13 @@ async def upload_file(
         )
     except KnownOperationError as exc:
         session.rollback()
+        _discard_stored_object(storage, stored_key)
         status_code = status.HTTP_409_CONFLICT if exc.code.startswith("WORKSPACE_") else 400
         raise operation_http_error(exc, status_code=status_code) from exc
+    except Exception:
+        session.rollback()
+        _discard_stored_object(storage, stored_key)
+        raise
     finally:
         tmp_path.unlink(missing_ok=True)
 

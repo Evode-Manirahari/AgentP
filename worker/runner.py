@@ -3,13 +3,14 @@ from __future__ import annotations
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Document, DocumentStatus, Job, JobInput, JobOutput, JobStatus
-from app.operations.base import KnownOperationError
+from app.operations.base import KnownOperationError, OperationOutput
 from app.operations.executor import execute_operation
 from app.operations.pdf_utils import sha256_path
 from app.services.audit import add_audit_event
@@ -66,6 +67,41 @@ def _load_inputs(job_id: str, *, workspace_id: str) -> list[JobInput]:
                 .order_by(JobInput.position)
             )
         )
+
+
+def _stage_outputs(
+    storage: StorageService,
+    *,
+    workspace_id: str,
+    job_id: str,
+    outputs: list[OperationOutput],
+) -> list[dict[str, Any]]:
+    """Write every output to storage and describe it, before any row lock is taken.
+
+    Reserving document quota locks the workspace row and holds it until the registration
+    transaction commits. Uploading underneath that lock would block every upload and job
+    completion in the workspace for the duration of an S3 round trip, while pinning a
+    pooled database connection. Output keys derive only from the job and filename, so the
+    bytes can be written before any document row exists.
+    """
+    staged: list[dict[str, Any]] = []
+    for position, output in enumerate(outputs):
+        storage_key = storage.output_key(
+            workspace_id=workspace_id,
+            job_id=job_id,
+            filename=output.filename,
+        )
+        storage.upload_path(output.path, key=storage_key, content_type=output.mime_type)
+        staged.append(
+            {
+                "position": position,
+                "output": output,
+                "storage_key": storage_key,
+                "sha256": sha256_path(output.path),
+                "size_bytes": output.path.stat().st_size,
+            }
+        )
+    return staged
 
 
 def process_job(job_id: str) -> None:
@@ -177,6 +213,13 @@ def process_job(job_id: str) -> None:
                 settings=settings,
             )
 
+            staged = _stage_outputs(
+                storage,
+                workspace_id=workspace_id,
+                job_id=job_id,
+                outputs=result.outputs,
+            )
+
             with SessionLocal() as session:
                 job = session.get(Job, job_id)
                 if job is None:
@@ -185,29 +228,24 @@ def process_job(job_id: str) -> None:
                 enforce_document_quota(
                     session,
                     workspace_id=job.workspace_id,
-                    incoming_bytes=sum(output.path.stat().st_size for output in result.outputs),
-                    incoming_documents=len(result.outputs),
+                    incoming_bytes=sum(item["size_bytes"] for item in staged),
+                    incoming_documents=len(staged),
                     settings=settings,
                 )
 
                 output_file_ids: list[str] = []
-                for position, output in enumerate(result.outputs):
-                    sha256 = sha256_path(output.path)
-                    storage_key = storage.output_key(
-                        workspace_id=job.workspace_id,
-                        job_id=job.id,
-                        filename=output.filename,
-                    )
-                    storage.upload_path(output.path, key=storage_key, content_type=output.mime_type)
+                for item in staged:
+                    position = item["position"]
+                    output = item["output"]
                     output_validation = validation["outputs"][position]
                     page_count = output_validation.get("page_count", output.page_count)
                     document = Document(
                         workspace_id=job.workspace_id,
                         original_filename=output.filename,
                         mime_type=output.mime_type,
-                        size_bytes=output.path.stat().st_size,
-                        sha256=sha256,
-                        storage_key=storage_key,
+                        size_bytes=item["size_bytes"],
+                        sha256=item["sha256"],
+                        storage_key=item["storage_key"],
                         page_count=page_count,
                         status=DocumentStatus.VALIDATED.value,
                         source_job_id=job.id,

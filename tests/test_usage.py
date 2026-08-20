@@ -225,3 +225,132 @@ def test_job_quota_rejects_hourly_throughput_after_active_jobs_finish(
 
     assert exc.value.code == "WORKSPACE_JOB_RATE_LIMIT_EXCEEDED"
     assert exc.value.details["window_seconds"] == 3600
+
+
+def test_a_rejected_upload_leaves_no_orphaned_object(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Storing before reserving quota must not leak bytes.
+
+    The object is written before the workspace row is locked, so that an S3 round trip is
+    not held under a lock that serializes every upload in the workspace. That ordering is
+    only safe if a rejected upload deletes what it stored: nothing sweeps an object that no
+    document row points at.
+    """
+    import asyncio
+    import io
+
+    from fastapi import UploadFile
+
+    from app.api import files as files_api
+    from app.services import auth as auth_service
+
+    uploaded: list[str] = []
+    deleted: list[str] = []
+
+    class RecordingStorage:
+        def __init__(self, settings: Any) -> None:
+            self.settings = settings
+
+        def input_key(self, *, workspace_id: str, document_id: str, filename: str) -> str:
+            return f"workspaces/{workspace_id}/inputs/{document_id}/{filename}"
+
+        def upload_path(self, path: Any, *, key: str, content_type: str) -> None:
+            uploaded.append(key)
+
+        def delete_object(self, *, key: str) -> None:
+            deleted.append(key)
+
+    monkeypatch.setattr(files_api, "StorageService", RecordingStorage)
+    monkeypatch.setattr(
+        files_api,
+        "validate_input_pdf",
+        lambda path, *, settings: {"mime_type": "application/pdf", "page_count": 1},
+    )
+    monkeypatch.setattr(files_api, "sha256_path", lambda path: "b" * 64)
+
+    session.add(_document("file_existing", size_bytes=900))
+    session.commit()
+
+    settings = Settings(workspace_storage_limit_bytes=1000)
+    upload = UploadFile(file=io.BytesIO(b"%PDF-1.7\n" + b"x" * 400), filename="big.pdf")
+    context = auth_service.AuthContext(
+        workspace_id="ws_acme",
+        workspace_name="Acme",
+        api_key_id="key_1",
+        api_key_name="test",
+    )
+
+    with pytest.raises(files_api.HTTPException) as exc:
+        asyncio.run(files_api.upload_file(upload, session, settings, context))
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["error"]["code"] == "WORKSPACE_STORAGE_LIMIT_EXCEEDED"
+    assert len(uploaded) == 1, "the object is stored before the workspace row is locked"
+    assert deleted == uploaded, "the stored object must be discarded when quota rejects it"
+    assert session.get(Document, "file_existing") is not None
+    assert (
+        session.query(Document).count() == 1
+    ), "the rejected upload must not leave a document row"
+
+
+def test_an_accepted_upload_commits_the_object_it_stored(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The committed row must point at the key that was actually written.
+
+    The storage key is derived from an identifier generated before the insert rather than
+    from the flushed row, so this pins the two together: a mismatch would commit a document
+    whose bytes live somewhere else.
+    """
+    import asyncio
+    import io
+
+    from fastapi import UploadFile
+
+    from app.api import files as files_api
+    from app.services import auth as auth_service
+
+    uploaded: list[str] = []
+    deleted: list[str] = []
+
+    class RecordingStorage:
+        def __init__(self, settings: Any) -> None:
+            self.settings = settings
+
+        def input_key(self, *, workspace_id: str, document_id: str, filename: str) -> str:
+            return f"workspaces/{workspace_id}/inputs/{document_id}/{filename}"
+
+        def upload_path(self, path: Any, *, key: str, content_type: str) -> None:
+            uploaded.append(key)
+
+        def delete_object(self, *, key: str) -> None:
+            deleted.append(key)
+
+    monkeypatch.setattr(files_api, "StorageService", RecordingStorage)
+    monkeypatch.setattr(
+        files_api,
+        "validate_input_pdf",
+        lambda path, *, settings: {"mime_type": "application/pdf", "page_count": 3},
+    )
+    monkeypatch.setattr(files_api, "sha256_path", lambda path: "c" * 64)
+
+    upload = UploadFile(file=io.BytesIO(b"%PDF-1.7\n" + b"x" * 40), filename="intake.pdf")
+    context = auth_service.AuthContext(
+        workspace_id="ws_acme",
+        workspace_name="Acme",
+        api_key_id="key_1",
+        api_key_name="test",
+    )
+
+    response = asyncio.run(files_api.upload_file(upload, session, Settings(), context))
+
+    assert response.page_count == 3
+    assert response.status == DocumentStatus.VALIDATED.value
+    assert deleted == [], "an accepted upload must not discard its own object"
+
+    stored = session.get(Document, response.file_id)
+    assert stored is not None
+    assert stored.storage_key == uploaded[0], "the row must point at the stored object"
+    assert response.file_id in stored.storage_key
+    assert stored.size_bytes == 49
